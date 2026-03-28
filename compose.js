@@ -637,19 +637,56 @@ function measureInkBounds(canvas) {
     }
   }
   if (top > bottom) return { top: 0, bottom: h, left: 0, right: w }; // empty
+
+  // Enforce minimum bounds: each character occupies at least 40% of its cell
+  // in each dimension, preserving the calligraphic "square space"
+  const minSpan = Math.round(w * 0.4);
+  const inkW = right - left;
+  const inkH = bottom - top;
+  if (inkW < minSpan) {
+    const cx = (left + right) / 2;
+    left = Math.max(0, Math.round(cx - minSpan / 2));
+    right = Math.min(w, Math.round(cx + minSpan / 2));
+  }
+  if (inkH < minSpan) {
+    const cy = (top + bottom) / 2;
+    top = Math.max(0, Math.round(cy - minSpan / 2));
+    bottom = Math.min(h, Math.round(cy + minSpan / 2));
+  }
+
   return { top, bottom, left, right };
 }
 
 // --- Layout ---
+function isCJK(ch) {
+  const code = ch.codePointAt(0);
+  return (code >= 0x4e00 && code <= 0x9fff) || (code >= 0x3400 && code <= 0x4dbf);
+}
+
 function parsePoem(text) {
-  const cjkRegex = /[\u4e00-\u9fff\u3400-\u4dbf]/g;
+  // Match CJK characters, CJK punctuation, fullwidth punctuation, and common punctuation
+  const charRegex = /[\u4e00-\u9fff\u3400-\u4dbf\u3000-\u303f\uff00-\uffef\u2000-\u206fa-zA-Z0-9.,!?;:'"()\-]/g;
   const rawLines = text.split(/\n/);
   const lines = [];
   for (const line of rawLines) {
-    const chars = line.match(cjkRegex);
+    const chars = line.match(charRegex);
     if (chars && chars.length > 0) lines.push(chars);
   }
   return lines;
+}
+
+// Render a non-CJK character (punctuation, Latin, numbers) as text on a canvas
+function renderTextChar(ch, cellSize) {
+  const canvas = document.createElement("canvas");
+  canvas.width = cellSize;
+  canvas.height = cellSize;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "rgba(28, 23, 19, 0.85)";
+  ctx.font = `${Math.round(cellSize * 0.65)}px "Iowan Old Style", "Palatino Linotype", "SimSun", "Songti SC", serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(ch, cellSize / 2, cellSize / 2);
+  return canvas;
 }
 
 function getSettings() {
@@ -1040,8 +1077,8 @@ async function doRender() {
   // Reset variant counters for fresh round-robin
   variantCounters = {};
 
-  // Prefetch all medians
-  const uniqueChars = [...new Set(allChars)];
+  // Prefetch all medians (CJK only)
+  const uniqueChars = [...new Set(allChars)].filter(isCJK);
   setStatus(`Loading ${uniqueChars.length} characters...`);
   await Promise.all(uniqueChars.map(ch => fetchMedians(ch)));
 
@@ -1056,15 +1093,20 @@ async function doRender() {
     // Pre-render at each character's own size, measure ink bounds
     variantCounters = {};
     const renderedChars = allChars.map((ch, i) => {
-      const medians = medianCache[ch];
-      if (!medians) return null;
-      const t = getTuningByIdx(i);
-      const designData = getVariant(ch, t.variantIdx);
       const sz = charSizes[i];
-      const ss = settings.strokeScale * t.strokeScale;
-      const canvas = renderCharacter(medians, designData, sz, ss);
+      const t = getTuningByIdx(i);
+      let canvas;
+      if (isCJK(ch)) {
+        const medians = medianCache[ch];
+        if (!medians) return null;
+        const designData = getVariant(ch, t.variantIdx);
+        const ss = settings.strokeScale * t.strokeScale;
+        canvas = renderCharacter(medians, designData, sz, ss);
+      } else {
+        canvas = renderTextChar(ch, sz);
+      }
       const bounds = measureInkBounds(canvas);
-      return { canvas, bounds, designData, size: sz };
+      return { canvas, bounds, size: sz };
     });
 
     variantCounters = {};
@@ -1081,13 +1123,18 @@ async function doRender() {
     let rendered = 0;
     for (let i = 0; i < layout.positions.length; i++) {
       const pos = layout.positions[i];
-      const medians = medianCache[pos.ch];
-      if (!medians) continue;
-      const t = getTuningByIdx(i);
-      const designData = getVariant(pos.ch, t.variantIdx);
       const sz = charSizes[i];
-      const ss = settings.strokeScale * t.strokeScale;
-      const charCanvas = renderCharacter(medians, designData, sz, ss);
+      const t = getTuningByIdx(i);
+      let charCanvas;
+      if (isCJK(pos.ch)) {
+        const medians = medianCache[pos.ch];
+        if (!medians) continue;
+        const designData = getVariant(pos.ch, t.variantIdx);
+        const ss = settings.strokeScale * t.strokeScale;
+        charCanvas = renderCharacter(medians, designData, sz, ss);
+      } else {
+        charCanvas = renderTextChar(pos.ch, sz);
+      }
       composeCtx.drawImage(charCanvas, pos.x, pos.y);
       rendered++;
     }
@@ -1115,12 +1162,17 @@ async function doRender() {
   let rendered = 0;
   for (let pi = 0; pi < layout.positions.length; pi++) {
     const pos = layout.positions[pi];
-    const medians = medianCache[pos.ch];
-    if (!medians) continue;
     const tPi = getTuningByIdx(pi);
-    const designData = getVariant(pos.ch, tPi.variantIdx);
-    const ssChar = settings.strokeScale * tPi.strokeScale;
-    const charCanvas = renderCharacter(medians, designData, settings.cellSize, ssChar);
+    let charCanvas;
+    if (isCJK(pos.ch)) {
+      const medians = medianCache[pos.ch];
+      if (!medians) continue;
+      const designData = getVariant(pos.ch, tPi.variantIdx);
+      const ssChar = settings.strokeScale * tPi.strokeScale;
+      charCanvas = renderCharacter(medians, designData, settings.cellSize, ssChar);
+    } else {
+      charCanvas = renderTextChar(pos.ch, settings.cellSize);
+    }
     composeCtx.drawImage(charCanvas, pos.x, pos.y);
     rendered++;
   }
@@ -1180,15 +1232,20 @@ document.getElementById("export-svg-btn").addEventListener("click", async () => 
     charSizes = computeCharSizes(allChars, settings.cellSize, settings.sizeVar, settings.complexShrink);
     variantCounters = {};
     const renderedChars = allChars.map((ch, i) => {
-      const medians = medianCache[ch];
-      if (!medians) return null;
-      const t = getTuningByIdx(i);
-      const designData = getVariant(ch, t.variantIdx);
       const sz = charSizes[i];
-      const ss = settings.strokeScale * t.strokeScale;
-      const canvas = renderCharacter(medians, designData, sz, ss);
+      const t = getTuningByIdx(i);
+      let canvas;
+      if (isCJK(ch)) {
+        const medians = medianCache[ch];
+        if (!medians) return null;
+        const designData = getVariant(ch, t.variantIdx);
+        const ss = settings.strokeScale * t.strokeScale;
+        canvas = renderCharacter(medians, designData, sz, ss);
+      } else {
+        canvas = renderTextChar(ch, sz);
+      }
       const bounds = measureInkBounds(canvas);
-      return { canvas, bounds, designData, size: sz };
+      return { canvas, bounds, size: sz };
     });
     variantCounters = {};
     layout = settings.direction === "smart-h"
@@ -1204,6 +1261,16 @@ document.getElementById("export-svg-btn").addEventListener("click", async () => 
   let paths = "";
   let posIdx = 0;
   for (const pos of layout.positions) {
+    // Non-CJK: render as SVG text element
+    if (!isCJK(pos.ch)) {
+      const cellSize = (charSizes && charSizes[posIdx]) ? charSizes[posIdx] : settings.cellSize;
+      const fontSize = Math.round(cellSize * 0.65);
+      const escaped = pos.ch.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+      paths += `<text x="${(pos.x + cellSize / 2).toFixed(1)}" y="${(pos.y + cellSize / 2).toFixed(1)}" font-size="${fontSize}" font-family="Iowan Old Style, Palatino Linotype, SimSun, Songti SC, serif" fill="rgba(28,23,19,0.85)" text-anchor="middle" dominant-baseline="central">${escaped}</text>\n`;
+      posIdx++;
+      continue;
+    }
+
     const medians = medianCache[pos.ch];
     if (!medians) { posIdx++; continue; }
 

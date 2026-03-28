@@ -469,6 +469,7 @@ body {
 /* Variant bar */
 .variant-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: stretch;
   gap: 8px;
   padding: 0 4px;

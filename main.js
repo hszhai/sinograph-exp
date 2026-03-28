@@ -1660,8 +1660,13 @@ function buildVariantBar() {
     bar.appendChild(slot);
   }
 
-  // "+5 / -5" toggle button above the slots
+  // Header row above slots: label + buttons
   if (toggle) {
+    const label = document.createElement("h4");
+    label.textContent = "Font";
+    label.className = "variant-toggle-label";
+    toggle.appendChild(label);
+
     if (visibleVariants < MAX_VARIANTS) {
       const btn = document.createElement("button");
       btn.textContent = "+5 slots";
@@ -1680,6 +1685,31 @@ function buildVariantBar() {
         buildVariantBar();
       });
       toggle.appendChild(btn);
+    }
+
+    // Tidy button: compact null gaps in variant array
+    const hasGaps = variants && variants.some((v, i) => v == null && i < variants.length - 1 && variants.slice(i + 1).some(x => x != null));
+    if (hasGaps) {
+      const tidyBtn = document.createElement("button");
+      tidyBtn.textContent = "Tidy";
+      tidyBtn.title = "Remove empty gaps between variants";
+      tidyBtn.addEventListener("click", () => {
+        const set = currentSetObj();
+        const arr = set.designs[currentChar];
+        if (!arr) return;
+        const compacted = arr.filter(v => v != null);
+        set.designs[currentChar] = compacted;
+        // Adjust currentVariant to follow the same design
+        const oldDesign = arr[currentVariant];
+        if (oldDesign) {
+          currentVariant = compacted.indexOf(oldDesign);
+        } else {
+          currentVariant = 0;
+        }
+        saveScene();
+        buildVariantBar();
+      });
+      toggle.appendChild(tidyBtn);
     }
   }
 }

@@ -469,8 +469,19 @@ body {
 /* Variant bar */
 .variant-toggle {
   display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 0 4px;
-  margin-bottom: 2px;
+  margin-bottom: 4px;
+}
+.variant-toggle-label {
+  font-size: 12px;
+  color: var(--ink-soft);
+  font-weight: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-family: "Menlo", "SFMono-Regular", monospace;
+  margin: 0;
 }
 .variant-toggle button {
   border: 1px solid var(--line);

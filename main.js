@@ -1687,22 +1687,29 @@ function buildVariantBar() {
       toggle.appendChild(btn);
     }
 
-    // Tidy button: compact null gaps in variant array
-    const hasGaps = variants && variants.some((v, i) => v == null && i < variants.length - 1 && variants.slice(i + 1).some(x => x != null));
-    if (hasGaps) {
+    // Tidy button: always visible when variants exist, compacts empty slots
+    if (variants && variants.length > 0) {
+      const occupied = variants.filter(v => v != null).length;
+      const hasGaps = occupied < variants.length;
       const tidyBtn = document.createElement("button");
       tidyBtn.textContent = "Tidy";
-      tidyBtn.title = "Remove empty gaps between variants";
+      tidyBtn.title = "Remove empty slots";
+      if (!hasGaps) {
+        tidyBtn.disabled = true;
+        tidyBtn.style.opacity = "0.35";
+        tidyBtn.style.cursor = "default";
+      }
       tidyBtn.addEventListener("click", () => {
+        if (!hasGaps) return;
         const set = currentSetObj();
         const arr = set.designs[currentChar];
         if (!arr) return;
+        const oldDesign = arr[currentVariant];
         const compacted = arr.filter(v => v != null);
         set.designs[currentChar] = compacted;
         // Adjust currentVariant to follow the same design
-        const oldDesign = arr[currentVariant];
         if (oldDesign) {
-          currentVariant = compacted.indexOf(oldDesign);
+          currentVariant = Math.max(0, compacted.indexOf(oldDesign));
         } else {
           currentVariant = 0;
         }

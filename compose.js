@@ -836,6 +836,10 @@ document.querySelectorAll(".sidebar label").forEach(label => {
 
 // Save text on input
 document.getElementById("poem-input").addEventListener("input", saveComposeState);
+document.getElementById("clear-text-btn").addEventListener("click", () => {
+  document.getElementById("poem-input").value = "";
+  saveComposeState();
+});
 
 // Save paper inputs on change
 document.getElementById("s-flowW").addEventListener("change", saveComposeState);

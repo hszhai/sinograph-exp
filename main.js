@@ -1658,7 +1658,7 @@ function buildVariantBar() {
     bar.appendChild(slot);
   }
 
-  // "+5" button if room for more
+  // "+5 / -5" toggle button
   if (visibleVariants < MAX_VARIANTS) {
     const addBtn = document.createElement("div");
     addBtn.className = "variant-slot empty-hint";
@@ -1673,6 +1673,21 @@ function buildVariantBar() {
       buildVariantBar();
     });
     bar.appendChild(addBtn);
+  } else {
+    // Show -5 to collapse back
+    const colBtn = document.createElement("div");
+    colBtn.className = "variant-slot empty-hint";
+    colBtn.title = "Show fewer slots";
+    colBtn.style.cursor = "pointer";
+    const label = document.createElement("span");
+    label.textContent = "\u22125";
+    label.style.cssText = "font-size:13px; color:rgba(78,61,46,0.4); font-family:Menlo,monospace;";
+    colBtn.appendChild(label);
+    colBtn.addEventListener("click", () => {
+      visibleVariants = 5;
+      buildVariantBar();
+    });
+    bar.appendChild(colBtn);
   }
 }
 

@@ -467,16 +467,33 @@ body {
 .num-input { -moz-appearance: textfield; appearance: textfield; }
 
 /* Variant bar */
+.variant-toggle {
+  display: flex;
+  padding: 0 4px;
+  margin-bottom: 2px;
+}
+.variant-toggle button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 10px;
+  background: rgba(255, 250, 240, 0.84);
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: 10px;
+  font-family: "Menlo", "SFMono-Regular", monospace;
+}
+.variant-toggle button:hover { border-color: var(--accent); color: var(--accent); }
+
 .variant-bar {
   display: flex;
   flex-wrap: wrap;
   align-items: stretch;
   gap: 8px;
   padding: 0 4px;
-  width: 648px;
 }
 
 .variant-slot {
+  min-width: 80px;
   width: 100px;
   height: 100px;
   border: 2px dashed var(--line);
@@ -592,7 +609,6 @@ body {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
-  max-width: 648px;
 }
 
 .set-char {

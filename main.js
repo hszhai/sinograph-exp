@@ -1555,8 +1555,10 @@ function renderThumbnail(tCanvas, designData, medians, seed) {
 
 function buildVariantBar() {
   const bar = document.getElementById("variant-bar");
+  const toggle = document.getElementById("variant-toggle");
   if (!bar) return;
   bar.innerHTML = "";
+  if (toggle) toggle.innerHTML = "";
 
   const variants = currentSetObj().designs[currentChar];
   const medians = getMedians();
@@ -1658,36 +1660,27 @@ function buildVariantBar() {
     bar.appendChild(slot);
   }
 
-  // "+5 / -5" toggle button
-  if (visibleVariants < MAX_VARIANTS) {
-    const addBtn = document.createElement("div");
-    addBtn.className = "variant-slot empty-hint";
-    addBtn.title = "Show 5 more slots";
-    addBtn.style.cursor = "pointer";
-    const label = document.createElement("span");
-    label.textContent = "+5";
-    label.style.cssText = "font-size:13px; color:rgba(78,61,46,0.4); font-family:Menlo,monospace;";
-    addBtn.appendChild(label);
-    addBtn.addEventListener("click", () => {
-      visibleVariants = Math.min(MAX_VARIANTS, visibleVariants + 5);
-      buildVariantBar();
-    });
-    bar.appendChild(addBtn);
-  } else {
-    // Show -5 to collapse back
-    const colBtn = document.createElement("div");
-    colBtn.className = "variant-slot empty-hint";
-    colBtn.title = "Show fewer slots";
-    colBtn.style.cursor = "pointer";
-    const label = document.createElement("span");
-    label.textContent = "\u22125";
-    label.style.cssText = "font-size:13px; color:rgba(78,61,46,0.4); font-family:Menlo,monospace;";
-    colBtn.appendChild(label);
-    colBtn.addEventListener("click", () => {
-      visibleVariants = 5;
-      buildVariantBar();
-    });
-    bar.appendChild(colBtn);
+  // "+5 / -5" toggle button above the slots
+  if (toggle) {
+    if (visibleVariants < MAX_VARIANTS) {
+      const btn = document.createElement("button");
+      btn.textContent = "+5 slots";
+      btn.title = "Show 5 more variant slots";
+      btn.addEventListener("click", () => {
+        visibleVariants = Math.min(MAX_VARIANTS, visibleVariants + 5);
+        buildVariantBar();
+      });
+      toggle.appendChild(btn);
+    } else {
+      const btn = document.createElement("button");
+      btn.textContent = "\u22125 slots";
+      btn.title = "Show fewer variant slots";
+      btn.addEventListener("click", () => {
+        visibleVariants = 5;
+        buildVariantBar();
+      });
+      toggle.appendChild(btn);
+    }
   }
 }
 

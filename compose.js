@@ -88,13 +88,13 @@ function loadSceneFromStorage() {
 
 function updateSceneInfo() {
   if (!scene) {
-    sceneInfoEl.textContent = "No scene loaded";
+    sceneInfoEl.textContent = "No project loaded";
     return;
   }
   const charCount = scene.chars.length;
   const varCount = Object.values(scene.designs)
     .reduce((sum, vs) => sum + (Array.isArray(vs) ? vs.filter(v => v).length : 0), 0);
-  sceneInfoEl.textContent = charCount > 0 ? `${charCount} chars, ${varCount} variants` : "No scene loaded";
+  sceneInfoEl.textContent = charCount > 0 ? `${charCount} chars, ${varCount} variants` : "No project loaded";
 }
 
 function migrateDesigns(designs) {

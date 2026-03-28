@@ -473,7 +473,7 @@ body {
   align-items: stretch;
   gap: 8px;
   padding: 0 4px;
-  max-width: 540px;
+  width: 648px;
 }
 
 .variant-slot {
@@ -592,7 +592,7 @@ body {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
-  max-width: 540px;
+  max-width: 648px;
 }
 
 .set-char {

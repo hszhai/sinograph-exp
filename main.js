@@ -1902,6 +1902,15 @@ async function init() {
   buildVariantBar();
   const startChar = composeChar || (currentSetObj().chars.length > 0 ? currentSetObj().chars[0] : currentChar);
   await switchToChar(startChar);
+  // Switch to the variant selected in compose
+  if (composeChar) {
+    const vi = localStorage.getItem("composeToDesignVariant");
+    localStorage.removeItem("composeToDesignVariant");
+    if (vi != null) {
+      const variantIdx = Number(vi);
+      if (variantIdx >= 0) switchToVariant(variantIdx);
+    }
+  }
   // Flash the character in the set to draw attention
   if (composeChar) {
     const setBtn = document.querySelector(`.set-char.active`);

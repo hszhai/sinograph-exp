@@ -447,6 +447,8 @@ function selectTuningIdx(idx) {
   headerBtn.classList.remove("tuning-hidden");
   headerBtn.onclick = () => {
     localStorage.setItem("composeToDesignChar", ch);
+    const vi = getTuningByIdx(idx).variantIdx;
+    if (vi >= 0) localStorage.setItem("composeToDesignVariant", String(vi));
     window.location.href = "./index.html";
   };
 

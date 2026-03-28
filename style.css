@@ -538,6 +538,17 @@ body {
 .variant-slot.occupied:hover .variant-delete { display: flex; }
 .variant-delete:hover { background: rgba(170, 68, 68, 0.15); }
 
+.variant-num {
+  position: absolute;
+  bottom: 2px;
+  left: 4px;
+  font-size: 9px;
+  font-family: Menlo, monospace;
+  color: rgba(78, 61, 46, 0.35);
+  pointer-events: none;
+  line-height: 1;
+}
+
 /* Character set */
 .set-section {
   padding: 0 4px;

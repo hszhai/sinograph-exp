@@ -753,14 +753,25 @@ document.getElementById("save-btn").addEventListener("click", async () => {
   // Save current character first
   saveCurrentDesign();
 
-  const json = JSON.stringify(scene, null, 2);
+  // Unified save: bundle scene + compose state + tuning
+  const bundle = { scene };
+  try {
+    const cs = JSON.parse(localStorage.getItem("composeState"));
+    if (cs) bundle.composeState = cs;
+  } catch {}
+  try {
+    const ct = JSON.parse(localStorage.getItem("composeTuning"));
+    if (ct && Object.keys(ct).length) bundle.composeTuning = ct;
+  } catch {}
+
+  const json = JSON.stringify(bundle, null, 2);
   const blob = new Blob([json], { type: "application/json" });
 
   // Use File System Access API if available (lets user pick location/name)
   if (window.showSaveFilePicker) {
     try {
       const handle = await showSaveFilePicker({
-        suggestedName: "scene.json",
+        suggestedName: "sinograph-lab.json",
         types: [{ description: "JSON", accept: { "application/json": [".json"] } }],
       });
       const writable = await handle.createWritable();
@@ -776,7 +787,7 @@ document.getElementById("save-btn").addEventListener("click", async () => {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "scene.json";
+  a.download = "sinograph-lab.json";
   a.click();
   URL.revokeObjectURL(url);
 });
@@ -793,8 +804,21 @@ document.getElementById("file-input").addEventListener("change", (e) => {
   reader.onload = () => {
     try {
       const data = JSON.parse(reader.result);
-      if (data.sets) {
-        // Multi-set scene file
+
+      // Unified bundle format: { scene, composeState?, composeTuning? }
+      if (data.scene) {
+        scene = data.scene;
+        scene.sets.forEach(s => { s.designs = migrateDesigns(s.designs); });
+        if (scene.currentSet == null) scene.currentSet = 0;
+        saveScene();
+        // Restore compose state + tuning
+        if (data.composeState) localStorage.setItem("composeState", JSON.stringify(data.composeState));
+        if (data.composeTuning) localStorage.setItem("composeTuning", JSON.stringify(data.composeTuning));
+        updateSetUI();
+        const set = currentSetObj();
+        if (set.chars.length > 0) switchToChar(set.chars[0]);
+      } else if (data.sets) {
+        // Multi-set scene file (legacy non-bundled)
         scene = data;
         scene.sets.forEach(s => { s.designs = migrateDesigns(s.designs); });
         if (scene.currentSet == null) scene.currentSet = 0;
@@ -1569,6 +1593,12 @@ function buildVariantBar() {
     }
     slot.appendChild(thumbCanvas);
 
+    // Slot number badge
+    const numBadge = document.createElement("span");
+    numBadge.className = "variant-num";
+    numBadge.textContent = i + 1;
+    slot.appendChild(numBadge);
+
     slot.title = hasData ? `Variant ${i + 1}` : `New variant`;
     slot.addEventListener("click", (e) => {
       if (e.target.classList.contains("variant-delete")) return;
@@ -1835,7 +1865,25 @@ function getComposeDesignChar() {
   const ch = localStorage.getItem("composeToDesignChar");
   if (ch) {
     localStorage.removeItem("composeToDesignChar");
-    // Ensure the character is in the set
+    // Find the set with the most variants for this character
+    // (matches compose merge behavior: last set with designs wins)
+    let bestSet = -1;
+    let bestCount = 0;
+    for (let i = 0; i < scene.sets.length; i++) {
+      const s = scene.sets[i];
+      if (s.designs[ch]) {
+        const count = s.designs[ch].filter(v => v != null).length;
+        if (count >= bestCount) {
+          bestCount = count;
+          bestSet = i;
+        }
+      }
+    }
+    if (bestSet >= 0) {
+      scene.currentSet = bestSet;
+      saveScene();
+    }
+    // Ensure the character is in the current set
     if (!currentSetObj().chars.includes(ch)) {
       addCharsToSet([ch]);
     }
@@ -1848,10 +1896,10 @@ function getComposeDesignChar() {
 async function init() {
   importFromCompose();
   buildWidthPresets();
+  // Check if compose sent us a specific character to design (may switch set)
+  const composeChar = getComposeDesignChar();
   updateSetUI();
   buildVariantBar();
-  // Check if compose sent us a specific character to design
-  const composeChar = getComposeDesignChar();
   const startChar = composeChar || (currentSetObj().chars.length > 0 ? currentSetObj().chars[0] : currentChar);
   await switchToChar(startChar);
   // Flash the character in the set to draw attention

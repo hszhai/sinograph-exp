@@ -107,14 +107,22 @@ function migrateDesigns(designs) {
   return designs;
 }
 
-function getVariant(ch) {
+function getVariant(ch, explicitIdx) {
   if (!scene || !scene.designs[ch]) return null;
   const variants = scene.designs[ch].filter(v => v != null);
   if (!variants.length) return null;
+  // Explicit variant selection (from tuning)
+  if (explicitIdx >= 0 && explicitIdx < variants.length) return variants[explicitIdx];
+  // Auto round-robin
   if (!variantCounters[ch]) variantCounters[ch] = 0;
   const idx = variantCounters[ch] % variants.length;
   variantCounters[ch]++;
   return variants[idx];
+}
+
+function getVariantCount(ch) {
+  if (!scene || !scene.designs[ch]) return 0;
+  return scene.designs[ch].filter(v => v != null).length;
 }
 
 // ---------------------------------------------------------------------------
@@ -135,7 +143,7 @@ function saveTuning() {
   localStorage.setItem(TUNING_KEY, JSON.stringify(charTuning));
 }
 
-const TUNING_DEFAULTS = { size: 1, offsetX: 0, offsetY: 0, spacing: 0, strokeScale: 1 };
+const TUNING_DEFAULTS = { size: 1, offsetX: 0, offsetY: 0, spacing: 0, strokeScale: 1, variantIdx: -1 }; // -1 = auto round-robin
 
 function tuningKey(idx) { return String(idx); }
 
@@ -229,8 +237,31 @@ function buildTuningUI(chars) {
   chars.forEach((ch, idx) => {
     const btn = document.createElement("button");
     btn.className = "tuning-char" + (charTuning[tuningKey(idx)] ? " has-tuning" : "");
-    btn.textContent = ch;
     btn.dataset.idx = idx;
+
+    // Render mini preview thumbnail
+    const medians = medianCache[ch];
+    const t = getTuningByIdx(idx);
+    const designData = getVariant(ch, t.variantIdx);
+    if (medians && designData) {
+      const thumb = renderCharacter(medians, designData, 40, 1);
+      thumb.style.cssText = "width:26px; height:26px; pointer-events:none;";
+      btn.appendChild(thumb);
+    } else {
+      btn.textContent = ch;
+    }
+
+    // Variant indicator superscript
+    const vc = getVariantCount(ch);
+    if (vc > 1) {
+      const sup = document.createElement("span");
+      sup.className = "tuning-variant-count";
+      const vi = t.variantIdx;
+      sup.textContent = vi >= 0 ? (vi + 1) : vc;
+      if (vi >= 0) sup.classList.add("variant-picked");
+      btn.appendChild(sup);
+    }
+
     btn.addEventListener("click", () => {
       if (tuningSelectedIdx === idx) { deselectTuning(); } else { selectTuningIdx(idx); }
     });
@@ -246,10 +277,67 @@ function buildTuningUI(chars) {
   }
 }
 
+function buildTuningPreview(idx) {
+  const container = document.getElementById("tuning-preview");
+  container.innerHTML = "";
+  if (idx < 0 || idx >= tuningAllChars.length) return;
+
+  const ch = tuningAllChars[idx];
+  const medians = medianCache[ch];
+  if (!medians) return;
+
+  const vc = getVariantCount(ch);
+  if (vc === 0) return;
+
+  const t = getTuningByIdx(idx);
+  const variants = scene.designs[ch].filter(v => v != null);
+
+  // Show "Auto" option if multiple variants
+  if (vc > 1) {
+    const autoSlot = document.createElement("div");
+    autoSlot.className = "tuning-preview-slot" + (t.variantIdx < 0 ? " active" : "");
+    autoSlot.title = "Auto (round-robin)";
+    autoSlot.style.cssText = "font-size:9px; color:var(--ink-soft); font-family:Menlo,monospace;";
+    autoSlot.textContent = "Auto";
+    autoSlot.addEventListener("click", () => {
+      setTuningByIdx(idx, "variantIdx", -1);
+      updateTuningHighlights();
+      buildTuningPreview(idx);
+      doRender();
+    });
+    container.appendChild(autoSlot);
+  }
+
+  variants.forEach((v, vi) => {
+    const slot = document.createElement("div");
+    slot.className = "tuning-preview-slot" + (t.variantIdx === vi ? " active" : (vc === 1 ? " active" : ""));
+    slot.title = `Variant ${vi + 1}`;
+
+    const thumb = renderCharacter(medians, v, 64, 1);
+    slot.appendChild(thumb);
+
+    const num = document.createElement("span");
+    num.className = "preview-num";
+    num.textContent = vi + 1;
+    slot.appendChild(num);
+
+    if (vc > 1) {
+      slot.addEventListener("click", () => {
+        setTuningByIdx(idx, "variantIdx", vi);
+        updateTuningHighlights();
+        buildTuningPreview(idx);
+        doRender();
+      });
+    }
+    container.appendChild(slot);
+  });
+}
+
 function deselectTuning() {
   tuningSelectedIdx = -1;
   document.querySelectorAll(".tuning-char").forEach(btn => btn.classList.remove("active"));
   document.getElementById("tuning-panel").innerHTML = "";
+  document.getElementById("tuning-preview").innerHTML = "";
   document.getElementById("tuning-design-btn").classList.add("tuning-hidden");
   // Restore clean canvas from snapshot
   if (lastSmartCache && lastSmartCache.snapshot.complete) {
@@ -270,6 +358,9 @@ function selectTuningIdx(idx) {
 
   // Show bbox on canvas
   drawBboxOverlay(idx);
+
+  // Show variant preview
+  buildTuningPreview(idx);
 
   const panel = document.getElementById("tuning-panel");
   const t = getTuningByIdx(idx);
@@ -366,6 +457,15 @@ function updateTuningHighlights() {
   document.querySelectorAll(".tuning-char").forEach(btn => {
     const idx = Number(btn.dataset.idx);
     btn.classList.toggle("has-tuning", !!charTuning[tuningKey(idx)]);
+    // Update variant superscript
+    const sup = btn.querySelector(".tuning-variant-count");
+    if (sup) {
+      const ch = tuningAllChars[idx];
+      const t = getTuningByIdx(idx);
+      const vc = getVariantCount(ch);
+      sup.textContent = t.variantIdx >= 0 ? (t.variantIdx + 1) : vc;
+      sup.classList.toggle("variant-picked", t.variantIdx >= 0);
+    }
   });
 }
 
@@ -746,26 +846,42 @@ document.querySelectorAll('input[name="dir"]').forEach(r => {
 
 // --- Save scene ---
 document.getElementById("save-btn").addEventListener("click", async () => {
-  const json = JSON.stringify(scene, null, 2);
+  // Read raw scene from localStorage (multi-set format, not merged)
+  let rawScene = scene;
+  try {
+    const stored = JSON.parse(localStorage.getItem(SCENE_KEY));
+    if (stored && stored.sets) rawScene = stored;
+  } catch {}
+
+  // Unified bundle: scene + compose state + tuning
+  saveComposeState();
+  const bundle = { scene: rawScene };
+  try {
+    const cs = JSON.parse(localStorage.getItem(COMPOSE_STATE_KEY));
+    if (cs) bundle.composeState = cs;
+  } catch {}
+  if (Object.keys(charTuning).length) bundle.composeTuning = charTuning;
+
+  const json = JSON.stringify(bundle, null, 2);
   const blob = new Blob([json], { type: "application/json" });
 
   if (window.showSaveFilePicker) {
     try {
       const handle = await showSaveFilePicker({
-        suggestedName: "scene.json",
+        suggestedName: "sinograph-lab.json",
         types: [{ description: "JSON", accept: { "application/json": [".json"] } }],
       });
       const writable = await handle.createWritable();
       await writable.write(blob);
       await writable.close();
-      setStatus("Scene saved");
+      setStatus("Saved");
       return;
     } catch (e) {
       if (e.name === "AbortError") return;
     }
   }
 
-  const name = prompt("Save as:", "scene.json");
+  const name = prompt("Save as:", "sinograph-lab.json");
   if (!name) return;
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -773,7 +889,7 @@ document.getElementById("save-btn").addEventListener("click", async () => {
   a.download = name.endsWith(".json") ? name : name + ".json";
   a.click();
   URL.revokeObjectURL(url);
-  setStatus("Scene downloaded");
+  setStatus("Saved");
 });
 
 // --- Load scene ---
@@ -788,24 +904,53 @@ document.getElementById("file-input").addEventListener("change", (e) => {
   reader.onload = () => {
     try {
       const data = JSON.parse(reader.result);
-      if (data.sets) {
-        // Multi-set format
+
+      // Helper to merge multi-set scene into flat compose scene
+      function mergeMultiSet(raw) {
         const merged = { chars: [], designs: {} };
-        for (const s of data.sets) {
+        for (const s of raw.sets) {
           const designs = migrateDesigns(s.designs);
           for (const ch of (s.chars || [])) {
             if (!merged.chars.includes(ch)) merged.chars.push(ch);
             if (designs[ch]) merged.designs[ch] = designs[ch];
           }
         }
-        scene = merged;
+        return merged;
+      }
+
+      if (data.scene) {
+        // Unified bundle format
+        const raw = data.scene;
+        if (raw.sets) {
+          scene = mergeMultiSet(raw);
+        } else if (raw.chars && raw.designs) {
+          scene = raw;
+          scene.designs = migrateDesigns(scene.designs);
+        }
+        // Also save the raw scene to localStorage for Design view
+        localStorage.setItem(SCENE_KEY, JSON.stringify(data.scene));
+        // Restore compose state
+        if (data.composeState) {
+          localStorage.setItem(COMPOSE_STATE_KEY, JSON.stringify(data.composeState));
+          restoreComposeState();
+        }
+        // Restore tuning
+        if (data.composeTuning) {
+          charTuning = data.composeTuning;
+          saveTuning();
+        }
         updateSceneInfo();
-        setStatus("Scene loaded: " + file.name);
+        setStatus("Loaded: " + file.name);
+      } else if (data.sets) {
+        // Multi-set format (legacy non-bundled)
+        scene = mergeMultiSet(data);
+        updateSceneInfo();
+        setStatus("Loaded: " + file.name);
       } else if (data.chars && data.designs) {
         scene = data;
         scene.designs = migrateDesigns(scene.designs);
         updateSceneInfo();
-        setStatus("Scene loaded: " + file.name);
+        setStatus("Loaded: " + file.name);
       }
     } catch (err) {
       setStatus("Failed to load: " + err.message);
@@ -869,9 +1014,10 @@ async function doRender() {
     const renderedChars = allChars.map((ch, i) => {
       const medians = medianCache[ch];
       if (!medians) return null;
-      const designData = getVariant(ch);
+      const t = getTuningByIdx(i);
+      const designData = getVariant(ch, t.variantIdx);
       const sz = charSizes[i];
-      const ss = settings.strokeScale * getTuningByIdx(i).strokeScale;
+      const ss = settings.strokeScale * t.strokeScale;
       const canvas = renderCharacter(medians, designData, sz, ss);
       const bounds = measureInkBounds(canvas);
       return { canvas, bounds, designData, size: sz };
@@ -891,9 +1037,10 @@ async function doRender() {
       const pos = layout.positions[i];
       const medians = medianCache[pos.ch];
       if (!medians) continue;
-      const designData = getVariant(pos.ch);
+      const t = getTuningByIdx(i);
+      const designData = getVariant(pos.ch, t.variantIdx);
       const sz = charSizes[i];
-      const ss = settings.strokeScale * getTuningByIdx(i).strokeScale;
+      const ss = settings.strokeScale * t.strokeScale;
       const charCanvas = renderCharacter(medians, designData, sz, ss);
       composeCtx.drawImage(charCanvas, pos.x, pos.y);
       rendered++;
@@ -925,8 +1072,9 @@ async function doRender() {
     const pos = layout.positions[pi];
     const medians = medianCache[pos.ch];
     if (!medians) continue;
-    const designData = getVariant(pos.ch);
-    const ssChar = settings.strokeScale * getTuningByIdx(pi).strokeScale;
+    const tPi = getTuningByIdx(pi);
+    const designData = getVariant(pos.ch, tPi.variantIdx);
+    const ssChar = settings.strokeScale * tPi.strokeScale;
     const charCanvas = renderCharacter(medians, designData, settings.cellSize, ssChar);
     composeCtx.drawImage(charCanvas, pos.x, pos.y);
     rendered++;
@@ -991,9 +1139,10 @@ document.getElementById("export-svg-btn").addEventListener("click", async () => 
     const renderedChars = allChars.map((ch, i) => {
       const medians = medianCache[ch];
       if (!medians) return null;
-      const designData = getVariant(ch);
+      const t = getTuningByIdx(i);
+      const designData = getVariant(ch, t.variantIdx);
       const sz = charSizes[i];
-      const ss = settings.strokeScale * getTuningByIdx(i).strokeScale;
+      const ss = settings.strokeScale * t.strokeScale;
       const canvas = renderCharacter(medians, designData, sz, ss);
       const bounds = measureInkBounds(canvas);
       return { canvas, bounds, designData, size: sz };
@@ -1015,7 +1164,8 @@ document.getElementById("export-svg-btn").addEventListener("click", async () => 
     const medians = medianCache[pos.ch];
     if (!medians) { posIdx++; continue; }
 
-    const designData = getVariant(pos.ch);
+    const tSvg = getTuningByIdx(posIdx);
+    const designData = getVariant(pos.ch, tSvg.variantIdx);
     const cs = designData ? (designData.charScale || 1.0) : 1.0;
     const cellSize = (charSizes && charSizes[posIdx]) ? charSizes[posIdx] : settings.cellSize;
     posIdx++;

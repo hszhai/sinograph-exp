@@ -291,6 +291,46 @@
 
     .tuning-hidden { display: none; }
 
+    .tuning-preview {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 6px;
+      align-items: center;
+      min-height: 0;
+    }
+    .tuning-preview:empty { display: none; }
+    .tuning-preview-slot {
+      width: 48px; height: 48px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--paper-strong);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      transition: border-color 0.15s;
+      position: relative;
+      overflow: hidden;
+    }
+    .tuning-preview-slot:hover { border-color: var(--accent); }
+    .tuning-preview-slot.active { border-color: var(--accent); border-width: 2px; background: rgba(159, 63, 23, 0.06); }
+    .tuning-preview-slot canvas {
+      width: 100%; height: 100%;
+      pointer-events: none;
+    }
+    .tuning-preview-slot .preview-num {
+      position: absolute;
+      bottom: 1px; left: 3px;
+      font-size: 8px;
+      font-family: Menlo, monospace;
+      color: rgba(78, 61, 46, 0.35);
+      pointer-events: none;
+    }
+    .tuning-preview-label {
+      font-size: 11px;
+      color: var(--ink-soft);
+      margin-right: 2px;
+      white-space: nowrap;
+    }
+
     .tuning-chars {
       display: flex;
       flex-wrap: wrap;
@@ -335,6 +375,49 @@
       margin-top: 4px;
     }
     .tuning-reset:hover { border-color: var(--accent); color: var(--accent); }
+
+    .tuning-char {
+      position: relative;
+    }
+    .tuning-variant-count {
+      position: absolute;
+      top: -2px;
+      right: -1px;
+      font-size: 8px;
+      font-family: Menlo, monospace;
+      color: rgba(78, 61, 46, 0.4);
+      background: var(--paper-strong);
+      border-radius: 4px;
+      padding: 0 2px;
+      line-height: 1.2;
+      pointer-events: none;
+    }
+    .tuning-variant-count.variant-picked {
+      color: #fff;
+      background: var(--accent);
+      border-radius: 6px;
+      padding: 0 3px;
+    }
+    .tuning-variant-row {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      margin-bottom: 5px;
+      flex-wrap: wrap;
+    }
+    .tuning-variant-btn {
+      min-width: 26px; height: 26px;
+      display: flex; align-items: center; justify-content: center;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: var(--paper-strong);
+      cursor: pointer;
+      font-size: 10px;
+      padding: 0;
+      transition: border-color 0.15s;
+    }
+    .tuning-variant-btn:hover { border-color: var(--accent); }
+    .tuning-variant-btn.active { border-color: var(--accent); background: rgba(159, 63, 23, 0.08); }
 
     /* Hide number input spinners */
     input[type="number"]::-webkit-inner-spin-button,
@@ -414,6 +497,7 @@
             <h3>Character tuning</h3>
             <button id="tuning-design-btn" type="button" class="section-link tuning-hidden">Send to Design</button>
           </div>
+          <div class="tuning-preview" id="tuning-preview"></div>
           <div class="tuning-chars" id="tuning-chars"></div>
           <div class="tuning-panel" id="tuning-panel"></div>
         </div>

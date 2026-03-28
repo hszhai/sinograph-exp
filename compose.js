@@ -700,25 +700,6 @@ function computeLayout(lines, settings) {
   }
 }
 
-function computeFlowLayout(allChars, settings) {
-  const { cellSize, spacing, padding, flowW, flowH } = settings;
-  const step = cellSize + spacing;
-
-  const colCap = Math.max(1, Math.floor((flowH - padding * 2 + spacing) / step));
-  const positions = [];
-  let col = 0, row = 0;
-
-  for (const ch of allChars) {
-    const colX = flowW - padding - (col + 1) * step + spacing;
-    if (colX < padding - spacing) break;
-    positions.push({ ch, x: colX, y: padding + row * step });
-    row++;
-    if (row >= colCap) { row = 0; col++; }
-  }
-
-  return { width: flowW, height: flowH, positions };
-}
-
 // ---------------------------------------------------------------------------
 // Smart layout: character size variation
 // ---------------------------------------------------------------------------
@@ -805,6 +786,62 @@ function computeSmartLayout(allChars, settings, renderedChars, charSizes) {
 
   // Clean temp properties
   for (const p of positions) delete p._offX;
+
+  return { width: flowW, height: flowH, positions };
+}
+
+// ---------------------------------------------------------------------------
+// Smart horizontal layout: pack characters in rows, left-to-right
+// ---------------------------------------------------------------------------
+function computeSmartHLayout(allChars, settings, renderedChars, charSizes) {
+  const { cellSize, spacing, lineGap, padding, flowW, flowH } = settings;
+  const inkGap = Math.max(0, Math.round(cellSize * 0.04 + spacing * 0.5));
+  const rowInkGap = Math.max(0, Math.round(cellSize * 0.02 + lineGap * 0.3));
+
+  const positions = [];
+  let rowTopEdge = padding;
+  let rowChars = [];
+  let cursorX = padding;
+
+  function flushRow() {
+    if (!rowChars.length) return;
+    let maxInkH = 0;
+    for (const item of rowChars) {
+      const inkH = item.bounds.bottom - item.bounds.top;
+      if (inkH > maxInkH) maxInkH = inkH;
+    }
+    const rowCenterY = rowTopEdge + maxInkH / 2;
+    for (const item of rowChars) {
+      const inkCenterY = (item.bounds.top + item.bounds.bottom) / 2;
+      item.pos.y = rowCenterY - inkCenterY + (item.pos._offY || 0);
+    }
+    rowTopEdge += maxInkH + rowInkGap;
+    rowChars = [];
+    cursorX = padding;
+  }
+
+  for (let i = 0; i < allChars.length; i++) {
+    const rendered = renderedChars[i];
+    if (!rendered) continue;
+
+    const ch = allChars[i];
+    const bounds = rendered.bounds;
+    const inkW = bounds.right - bounds.left;
+    const t = getTuningByIdx(i);
+
+    if (cursorX + inkW + t.spacing > flowW - padding && rowChars.length > 0) {
+      flushRow();
+    }
+
+    const xOffset = cursorX - bounds.left + t.offsetX;
+    const pos = { ch, x: xOffset, y: 0, _offY: t.offsetY };
+    positions.push(pos);
+    rowChars.push({ pos, bounds });
+    cursorX += inkW + inkGap + t.spacing;
+  }
+  flushRow();
+
+  for (const p of positions) delete p._offY;
 
   return { width: flowW, height: flowH, positions };
 }
@@ -981,7 +1018,7 @@ document.getElementById("send-to-design").addEventListener("click", () => {
 // --- Toggle flow settings visibility ---
 function updateFlowSettingsVisibility() {
   const dir = document.querySelector('input[name="dir"]:checked').value;
-  document.getElementById("smart-settings").classList.toggle("visible", dir === "smart");
+  document.getElementById("smart-settings").classList.toggle("visible", dir === "smart" || dir === "smart-h");
 }
 document.querySelectorAll('input[name="dir"]').forEach(r => {
   r.addEventListener("change", updateFlowSettingsVisibility);
@@ -1009,7 +1046,8 @@ async function doRender() {
   await Promise.all(uniqueChars.map(ch => fetchMedians(ch)));
 
   let layout;
-  if (settings.direction === "smart") {
+  const isSmart = settings.direction === "smart" || settings.direction === "smart-h";
+  if (isSmart) {
     setStatus("Measuring characters...");
 
     // Compute per-character sizes
@@ -1030,7 +1068,9 @@ async function doRender() {
     });
 
     variantCounters = {};
-    layout = computeSmartLayout(allChars, settings, renderedChars, charSizes);
+    layout = settings.direction === "smart-h"
+      ? computeSmartHLayout(allChars, settings, renderedChars, charSizes)
+      : computeSmartLayout(allChars, settings, renderedChars, charSizes);
 
     composeCanvas.width = layout.width;
     composeCanvas.height = layout.height;
@@ -1059,9 +1099,8 @@ async function doRender() {
     return;
   }
 
-  if (settings.direction === "flow") {
-    layout = computeFlowLayout(allChars, settings);
-  } else {
+  // Grid layouts (vertical / horizontal)
+  {
     layout = computeLayout(lines, settings);
   }
 
@@ -1090,11 +1129,8 @@ async function doRender() {
   const missingMsg = missing > 0 ? `, ${missing} missing` : "";
   setStatus(`Done: ${rendered} characters rendered${missingMsg}`);
   lastSmartCache = null;
-  if (settings.direction === "flow" || settings.direction === "smart") {
-    buildTuningUI(allChars);
-  } else {
-    document.getElementById("tuning-section").classList.add("tuning-hidden");
-  }
+  // Grid layouts: still show tuning UI
+  buildTuningUI(allChars);
 }
 
 // --- Export PNG ---
@@ -1139,7 +1175,8 @@ document.getElementById("export-svg-btn").addEventListener("click", async () => 
 
   // For smart layout, need to do the full measure pass
   let charSizes = null;
-  if (settings.direction === "smart") {
+  const isSmart = settings.direction === "smart" || settings.direction === "smart-h";
+  if (isSmart) {
     charSizes = computeCharSizes(allChars, settings.cellSize, settings.sizeVar, settings.complexShrink);
     variantCounters = {};
     const renderedChars = allChars.map((ch, i) => {
@@ -1154,9 +1191,9 @@ document.getElementById("export-svg-btn").addEventListener("click", async () => 
       return { canvas, bounds, designData, size: sz };
     });
     variantCounters = {};
-    layout = computeSmartLayout(allChars, settings, renderedChars, charSizes);
-  } else if (settings.direction === "flow") {
-    layout = computeFlowLayout(allChars, settings);
+    layout = settings.direction === "smart-h"
+      ? computeSmartHLayout(allChars, settings, renderedChars, charSizes)
+      : computeSmartLayout(allChars, settings, renderedChars, charSizes);
   } else {
     layout = computeLayout(lines, settings);
   }

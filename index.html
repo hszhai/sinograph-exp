@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sinograph Lab</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <main class="page">
+    <header class="toolbar">
+      <div class="toolbar-left">
+        <span class="toolbar-brand">Sinograph Lab</span>
+        <label class="char-input-label">
+          Character
+          <input id="char-input" type="text" maxlength="1" value="永" />
+        </label>
+      </div>
+      <div class="toolbar-right">
+        <button id="load-btn" type="button">Load</button>
+        <button id="save-btn" type="button">Save</button>
+        <button id="export-png-btn" type="button">PNG</button>
+        <button id="export-svg-btn" type="button">SVG</button>
+        <a href="./compose.html" class="toolbar-link">Compose &rarr;</a>
+        <input id="file-input" type="file" accept=".json" title="Load file" />
+      </div>
+    </header>
+
+    <div class="workspace">
+      <div class="canvas-area">
+        <div class="canvas-wrap">
+          <canvas id="main-canvas" width="640" height="640"></canvas>
+          <button id="reset-stroke-btn" type="button" class="canvas-float-btn reset-stroke-float" disabled>Reset stroke</button>
+          <button id="reroll-btn" type="button" class="reroll-btn" title="Reroll seed">&#x21bb;</button>
+        </div>
+        <div class="stroke-bar" id="stroke-bar">
+          <!-- stroke buttons injected by JS -->
+        </div>
+        <div class="variant-bar" id="variant-bar">
+          <!-- variant slots injected by JS -->
+        </div>
+        <div class="set-section">
+          <div class="set-header">
+            <h4>Set</h4>
+            <button id="import-txt-btn" type="button" class="set-tool-btn" title="Import characters from text file">+ txt</button>
+            <button id="clear-set-btn" type="button" class="set-tool-btn set-tool-danger" title="Clear all characters from set">clear</button>
+            <input id="txt-file-input" type="file" accept=".txt" title="Import text file" />
+          </div>
+          <div class="char-set" id="char-set">
+            <!-- character set injected by JS -->
+          </div>
+        </div>
+      </div>
+
+      <aside class="panel">
+        <div class="panel-section">
+          <div class="style-radios" id="p-style">
+            <label class="style-radio"><input type="radio" name="style" value="calligraphic" checked /><span>Calligraphic</span></label>
+            <label class="style-radio"><input type="radio" name="style" value="expressive" /><span>Expressive</span></label>
+            <label class="style-radio"><input type="radio" name="style" value="brush" /><span>Brush</span></label>
+            <label class="style-radio"><input type="radio" name="style" value="even" /><span>Even</span></label>
+          </div>
+          <label>Radius <input id="p-radius" type="range" min="2" max="80" step="0.5" value="30" /><input class="num-input" data-for="p-radius" type="number" /></label>
+          <label>Taper <input id="p-taper" type="range" min="0" max="3" step="0.02" value="0.55" /><input class="num-input" data-for="p-taper" type="number" /></label>
+          <label>Brush angle <input id="p-brushAngle" type="range" min="-180" max="180" step="1" value="-30" /><input class="num-input" data-for="p-brushAngle" type="number" /></label>
+          <label>Angle var <input id="p-angleVar" type="range" min="0" max="180" step="1" value="0" /><input class="num-input" data-for="p-angleVar" type="number" /></label>
+          <label>Tremor <input id="p-tremor" type="range" min="0" max="30" step="0.2" value="0" /><input class="num-input" data-for="p-tremor" type="number" /></label>
+          <label>Jitter <input id="p-jitter" type="range" min="0" max="60" step="0.2" value="3" /><input class="num-input" data-for="p-jitter" type="number" /></label>
+          <label>Warp <input id="p-warp" type="range" min="0" max="3" step="0.05" value="0" /><input class="num-input" data-for="p-warp" type="number" /></label>
+          <label>Smoothness <input id="p-smoothness" type="range" min="0" max="1" step="0.02" value="0.45" /><input class="num-input" data-for="p-smoothness" type="number" /></label>
+          <label>Weight <input id="p-weightMul" type="range" min="0.3" max="2.5" step="0.02" value="1" /><input class="num-input" data-for="p-weightMul" type="number" /></label>
+          <label>Ink level <input id="p-inkLevel" type="range" min="0.1" max="1" step="0.02" value="0.9" /><input class="num-input" data-for="p-inkLevel" type="number" /></label>
+          <label>Asymmetry <input id="p-asymmetry" type="range" min="-1" max="1" step="0.02" value="0" /><input class="num-input" data-for="p-asymmetry" type="number" /></label>
+          <label>Curvature wt <input id="p-curvatureWeight" type="range" min="0" max="5" step="0.05" value="0.5" /><input class="num-input" data-for="p-curvatureWeight" type="number" /></label>
+          <label>Sample step <input id="p-sampleStep" type="range" min="1" max="50" step="0.5" value="5" /><input class="num-input" data-for="p-sampleStep" type="number" /></label>
+          <label>Normal bias <input id="p-normalBias" type="range" min="-50" max="50" step="0.2" value="0" /><input class="num-input" data-for="p-normalBias" type="number" /></label>
+          <label>Dryness <input id="p-dryness" type="range" min="0" max="1" step="0.02" value="0.12" /><input class="num-input" data-for="p-dryness" type="number" /></label>
+          <label>Scale <input id="char-scale" type="range" min="0.85" max="1.15" step="0.01" value="1" /><input class="num-input" id="char-scale-num" type="number" step="0.01" /></label>
+        </div>
+
+        <div class="panel-section">
+          <div class="curve-header">
+            <h3>Width curve</h3>
+            <div class="curve-tools">
+              <div class="curve-presets" id="width-presets"></div>
+              <button id="smooth-width-btn" type="button" class="curve-tool-btn" title="Smooth">~</button>
+            </div>
+          </div>
+          <canvas id="curve-canvas" width="260" height="120"></canvas>
+        </div>
+
+        <div class="panel-section">
+          <div class="curve-header">
+            <h3>Offset curve</h3>
+            <button id="smooth-offset-btn" type="button" class="curve-tool-btn" title="Smooth">~</button>
+          </div>
+          <canvas id="offset-canvas" width="260" height="120"></canvas>
+        </div>
+
+        <div class="panel-section panel-bottom">
+          <button id="reset-all-btn" type="button">Reset all</button>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <script type="module" src="./entry-design.js"></script>
+</body>
+</html>

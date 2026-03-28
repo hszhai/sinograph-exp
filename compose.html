@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sinograph Lab - Compose</title>
+  <style>
+    :root {
+      --paper: #f5ecdc;
+      --paper-strong: #fffaf0;
+      --ink: #1c1713;
+      --ink-soft: #5f5348;
+      --line: rgba(78, 61, 46, 0.22);
+      --accent: #9f3f17;
+    }
+
+    * { box-sizing: border-box; margin: 0; }
+
+    body {
+      font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+      background:
+        radial-gradient(circle at top left, rgba(202, 145, 98, 0.12), transparent 26%),
+        linear-gradient(180deg, #efe2ca 0%, var(--paper) 45%, #efe7db 100%);
+      color: var(--ink);
+      min-height: 100vh;
+    }
+
+    .page {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+
+    .toolbar {
+      position: relative;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 14px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(255, 250, 240, 0.72);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      margin-bottom: 10px;
+      overflow: hidden;
+    }
+
+    .toolbar-brand {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -55%);
+      font-family: "Didot", "Bodoni MT", "Playfair Display", "Georgia", serif;
+      font-size: 18px;
+      font-weight: 700;
+      color: rgba(78, 61, 46, 0.30);
+      letter-spacing: 0.08em;
+      -webkit-user-select: none;
+      user-select: none;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+
+    .toolbar-left, .toolbar-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      z-index: 1;
+    }
+
+    .toolbar button, .toolbar label {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 12px;
+      background: rgba(255, 250, 240, 0.84);
+      color: var(--ink-soft);
+      cursor: pointer;
+      font-size: 12px;
+      font-family: "Menlo", "SFMono-Regular", monospace;
+    }
+    .toolbar button:hover { border-color: var(--accent); color: var(--accent); }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      gap: 10px;
+      align-items: start;
+    }
+
+    .sidebar {
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: rgba(255, 250, 240, 0.84);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+
+    .sidebar h3 {
+      font-size: 14px;
+      margin-bottom: 6px;
+    }
+
+    .sidebar textarea {
+      width: 100%;
+      height: 100px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 8px;
+      font-family: inherit;
+      font-size: 16px;
+      background: var(--paper-strong);
+      color: var(--ink);
+      resize: vertical;
+      line-height: 1.6;
+    }
+    .sidebar textarea:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+
+    .sidebar-section { margin-bottom: 10px; }
+
+    .sidebar label:not(.dir-radio) {
+      display: grid;
+      grid-template-columns: 80px 1fr 40px;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--ink-soft);
+      margin-bottom: 4px;
+    }
+
+    .sidebar input[type="range"] {
+      width: 100%;
+      -webkit-appearance: none;
+      appearance: none;
+      height: 4px;
+      border-radius: 2px;
+      background: var(--line);
+      outline: none;
+    }
+    .sidebar input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px; height: 14px; border-radius: 50%;
+      background: var(--accent);
+      border: 2px solid var(--paper-strong);
+      cursor: pointer;
+    }
+    .sidebar input[type="range"]::-moz-range-thumb {
+      width: 14px; height: 14px; border-radius: 50%;
+      background: var(--accent);
+      border: 2px solid var(--paper-strong);
+      cursor: pointer;
+    }
+
+    .num-input {
+      width: 40px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 2px 4px;
+      background: var(--paper-strong);
+      color: var(--accent);
+      font-family: "Menlo", "SFMono-Regular", monospace;
+      font-size: 11px;
+      text-align: right;
+    }
+
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .section-header h3 { margin-bottom: 0; }
+
+    .section-link {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 2px 8px;
+      background: rgba(255, 250, 240, 0.84);
+      color: var(--ink-soft);
+      cursor: pointer;
+      font-size: 10px;
+      font-family: "Menlo", "SFMono-Regular", monospace;
+      text-decoration: none;
+    }
+    .section-link:hover { border-color: var(--accent); color: var(--accent); }
+
+    .paper-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      font-size: 12px;
+      color: var(--ink-soft);
+    }
+    .paper-row span { white-space: nowrap; }
+    .paper-input {
+      width: 56px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 3px 5px;
+      background: var(--paper-strong);
+      color: var(--accent);
+      font-family: "Menlo", "SFMono-Regular", monospace;
+      font-size: 11px;
+      text-align: right;
+    }
+
+    .flow-settings { display: none; margin-top: 4px; }
+    .flow-settings.visible { display: block; }
+
+    .render-btn {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid var(--accent);
+      border-radius: 999px;
+      background: rgba(159, 63, 23, 0.08);
+      color: var(--accent);
+      cursor: pointer;
+      font-size: 13px;
+      font-family: "Menlo", "SFMono-Regular", monospace;
+      font-weight: bold;
+    }
+    .render-btn:hover { background: rgba(159, 63, 23, 0.15); }
+
+    .scene-info {
+      font-size: 11px;
+      color: var(--ink-soft);
+      font-family: "Menlo", "SFMono-Regular", monospace;
+      margin-bottom: 8px;
+      min-height: 16px;
+    }
+
+    .canvas-area {
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: var(--paper-strong);
+      padding: 20px;
+      min-height: 400px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      overflow: auto;
+    }
+
+    #compose-canvas {
+      display: block;
+    }
+
+    .status {
+      font-size: 12px;
+      color: var(--ink-soft);
+      font-family: "Menlo", "SFMono-Regular", monospace;
+      margin-top: 4px;
+      min-height: 18px;
+    }
+
+    .direction-radios {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+    .dir-radio {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 5px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: border-color 0.15s;
+      color: var(--ink-soft);
+    }
+    .dir-radio:hover { border-color: var(--accent); color: var(--accent); }
+    .dir-radio:has(input:checked) {
+      border-color: var(--accent);
+      background: rgba(159, 63, 23, 0.08);
+      color: var(--accent);
+    }
+    .dir-radio input { display: none; }
+    .dir-radio svg { display: block; }
+
+    .back-link {
+      font-size: 12px;
+      color: var(--ink-soft);
+      text-decoration: none;
+      font-family: "Menlo", "SFMono-Regular", monospace;
+    }
+    .back-link:hover { color: var(--accent); }
+
+    .tuning-hidden { display: none; }
+
+    .tuning-chars {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 3px;
+      margin-bottom: 6px;
+      max-height: 140px;
+      overflow-y: auto;
+    }
+    .tuning-char {
+      width: 28px; height: 28px;
+      display: flex; align-items: center; justify-content: center;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      font-size: 16px;
+      cursor: pointer;
+      background: var(--paper-strong);
+      transition: border-color 0.15s;
+    }
+    .tuning-char:hover { border-color: var(--accent); }
+    .tuning-char.active { border-color: var(--accent); background: rgba(159, 63, 23, 0.08); }
+    .tuning-char.has-tuning { color: var(--accent); }
+
+    .tuning-panel label {
+      display: grid;
+      grid-template-columns: 56px 1fr 40px;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: var(--ink-soft);
+      margin-bottom: 3px;
+    }
+    .tuning-panel .num-input { width: 38px; font-size: 10px; }
+    .tuning-reset {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 3px 8px;
+      background: var(--paper-strong);
+      color: var(--ink-soft);
+      cursor: pointer;
+      font-size: 11px;
+      font-family: "Menlo", "SFMono-Regular", monospace;
+      margin-top: 4px;
+    }
+    .tuning-reset:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* Hide number input spinners */
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+
+    input[type="file"] { display: none; }
+
+    @media (max-width: 800px) {
+      .workspace { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="toolbar">
+      <div class="toolbar-left">
+        <span class="toolbar-brand">Sinograph Lab</span>
+        <a href="./index.html" class="back-link">&larr; Design</a>
+        <button id="load-btn" type="button">Load</button>
+        <button id="save-btn" type="button">Save</button>
+      </div>
+      <div class="toolbar-right">
+        <button id="export-png-btn" type="button">PNG</button>
+        <button id="export-svg-btn" type="button">SVG</button>
+      </div>
+      <input id="file-input" type="file" accept=".json" />
+    </header>
+
+    <div class="workspace">
+      <aside class="sidebar">
+        <div class="sidebar-section">
+          <h3>Paper</h3>
+          <div class="paper-row">
+            <span>W</span><input id="s-flowW" type="number" class="paper-input" value="500" min="200" max="1200" step="10" aria-label="Paper width" />
+            <span>H</span><input id="s-flowH" type="number" class="paper-input" value="700" min="200" max="1600" step="10" aria-label="Paper height" />
+          </div>
+        </div>
+
+        <div class="sidebar-section">
+          <h3>Layout</h3>
+          <div class="direction-radios">
+            <label class="dir-radio"><input type="radio" name="dir" value="vertical" aria-label="Vertical" checked /><svg width="16" height="16" viewBox="0 0 16 16"><path d="M11 2v12M11 14l-2-2M11 14l2-2M5 2v12M5 14l-2-2M5 14l2-2" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round"/><path d="M13 1h1v1M13 15h1v-1M2 1h1v1M2 15h1v-1" stroke="currentColor" stroke-width="1" fill="none" opacity="0.4"/></svg></label>
+            <label class="dir-radio"><input type="radio" name="dir" value="horizontal" aria-label="Horizontal" /><svg width="16" height="16" viewBox="0 0 16 16"><path d="M2 5h12M14 5l-2-2M14 5l-2 2M2 11h12M14 11l-2-2M14 11l-2 2" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round"/><path d="M1 2v1h1M15 2v1h-1M1 13v1h1M15 13v1h-1" stroke="currentColor" stroke-width="1" fill="none" opacity="0.4"/></svg></label>
+            <label class="dir-radio"><input type="radio" name="dir" value="flow" aria-label="Flow" /><svg width="16" height="16" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="1.5" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M4.5 5h7M4.5 8h7M4.5 11h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" opacity="0.6"/></svg></label>
+            <label class="dir-radio"><input type="radio" name="dir" value="smart" aria-label="Smart pack" /><svg width="16" height="16" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="1.5" stroke="currentColor" stroke-width="1.2" fill="none"/><rect x="3.5" y="3" width="4.5" height="5" rx="0.5" fill="currentColor" opacity="0.35"/><rect x="9" y="3" width="3.5" height="4" rx="0.5" fill="currentColor" opacity="0.35"/><rect x="3.5" y="9" width="3" height="4" rx="0.5" fill="currentColor" opacity="0.35"/><rect x="7.5" y="8" width="5" height="5" rx="0.5" fill="currentColor" opacity="0.35"/></svg></label>
+          </div>
+          <label>Cell size <input id="s-cellSize" type="range" min="40" max="200" step="2" value="100" /><input class="num-input" data-for="s-cellSize" type="number" /></label>
+          <label>Stroke scale <input id="s-strokeScale" type="range" min="0.3" max="3" step="0.05" value="1" /><input class="num-input" data-for="s-strokeScale" type="number" /></label>
+          <label>Spacing <input id="s-spacing" type="range" min="-40" max="40" step="1" value="4" /><input class="num-input" data-for="s-spacing" type="number" /></label>
+          <label>Line gap <input id="s-lineGap" type="range" min="0" max="60" step="1" value="8" /><input class="num-input" data-for="s-lineGap" type="number" /></label>
+          <label>Padding <input id="s-padding" type="range" min="10" max="100" step="2" value="40" /><input class="num-input" data-for="s-padding" type="number" /></label>
+          <div class="flow-settings" id="smart-settings">
+            <label>Size var <input id="s-sizeVar" type="range" min="0" max="0.25" step="0.01" value="0.05" /><input class="num-input" data-for="s-sizeVar" type="number" /></label>
+            <label>Complexity <input id="s-complexShrink" type="range" min="0" max="0.3" step="0.01" value="0.05" /><input class="num-input" data-for="s-complexShrink" type="number" /></label>
+          </div>
+        </div>
+
+        <div class="sidebar-section">
+          <div class="section-header">
+            <h3>Text</h3>
+            <button id="send-to-design" type="button" class="section-link">Send to Design</button>
+          </div>
+          <textarea id="poem-input" placeholder="Paste text here...">關關雎鳩
+在河之洲
+窈窕淑女
+君子好逑</textarea>
+          <div class="scene-info" id="scene-info">No scene loaded</div>
+        </div>
+
+        <div class="sidebar-section">
+          <button id="render-btn" type="button" class="render-btn">Render</button>
+        </div>
+
+        <div class="sidebar-section tuning-hidden" id="tuning-section">
+          <div class="section-header">
+            <h3>Character tuning</h3>
+            <button id="tuning-design-btn" type="button" class="section-link tuning-hidden">Send to Design</button>
+          </div>
+          <div class="tuning-chars" id="tuning-chars"></div>
+          <div class="tuning-panel" id="tuning-panel"></div>
+        </div>
+
+        <div class="status" id="status"></div>
+      </aside>
+
+      <div class="canvas-area">
+        <canvas id="compose-canvas" width="800" height="600"></canvas>
+      </div>
+    </div>
+  </main>
+
+  <script type="module" src="./entry-compose.js"></script>
+</body>
+</html>

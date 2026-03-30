@@ -2,10 +2,11 @@
 // Sinograph Lab - Interactive per-stroke Chinese character design
 // ---------------------------------------------------------------------------
 import {
-  mulberry32, transformMedian, smoothMedian, densityScale,
+  mulberry32, modifyMedian, trimMedian, transformMedian, smoothMedian, densityScale,
   classifyStroke, parseStrokeType, pressureCurve,
   createStrokeEnvelope, smoothClosedPath,
 } from "./engine.js";
+import { generateRandom, generateBatch, breed, crossover, PRESET_NAMES } from "./generate.js";
 
 const CANVAS_SIZE = 640;
 const PAD = 40;
@@ -33,72 +34,170 @@ async function fetchMedians(ch) {
 }
 
 // ---------------------------------------------------------------------------
-// Scene: character set + all designs
+// Projects: named containers, each with its own scene
 // ---------------------------------------------------------------------------
-const SCENE_KEY = "charDesignScene";
+const PROJECTS_KEY = "sinograph_projects";
+const SCENE_KEY = "charDesignScene"; // kept for legacy migration only
 const MAX_SET_SIZE = 50;
 const MAX_VARIANTS = 10;
 let visibleVariants = 5;
 
-// Scene structure: { sets: [{ name, chars, designs }], currentSet: 0 }
-let scene = loadScene();
-let currentVariant = 0;
-
 function emptySet(name) {
   return { name: name || "Set 1", chars: [], designs: {} };
 }
-
 function emptyScene() {
   return { sets: [emptySet()], currentSet: 0 };
 }
+function migrateDesigns(designs) {
+  if (!designs) return {};
+  for (const ch of Object.keys(designs)) {
+    if (designs[ch] && !Array.isArray(designs[ch])) designs[ch] = [designs[ch]];
+  }
+  return designs;
+}
+
+function emptyProject(name) {
+  return { name: name || "Project 1", scene: emptyScene() };
+}
+
+function loadProjects() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PROJECTS_KEY));
+    if (raw && raw.projects && raw.active) return raw;
+  } catch {}
+  // First run: migrate legacy scene into default project
+  const legacyScene = (() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem(SCENE_KEY));
+      if (raw) {
+        if (raw.sets) {
+          raw.sets.forEach(s => { s.designs = migrateDesigns(s.designs); });
+          if (raw.currentSet == null) raw.currentSet = 0;
+          return raw;
+        }
+        if (raw.chars) {
+          raw.designs = migrateDesigns(raw.designs);
+          return { sets: [{ name: "Set 1", chars: raw.chars, designs: raw.designs }], currentSet: 0 };
+        }
+      }
+    } catch {}
+    try {
+      const old = JSON.parse(localStorage.getItem("charDesignLibrary"));
+      if (old && typeof old === "object") {
+        const chars = Object.keys(old).slice(0, MAX_SET_SIZE);
+        const designs = {};
+        for (const ch of chars) designs[ch] = [old[ch]];
+        return { sets: [{ name: "Set 1", chars, designs }], currentSet: 0 };
+      }
+    } catch {}
+    return null;
+  })();
+  const id = "p_" + Date.now();
+  const proj = { name: "Project 1", scene: legacyScene || emptyScene() };
+  return { active: id, projects: { [id]: proj } };
+}
+
+function saveProjects() {
+  localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects));
+}
+
+function activeProject() {
+  return projects.projects[projects.active];
+}
+
+let projects = loadProjects();
+
+// Scene structure: { sets: [{ name, chars, designs }], currentSet: 0 }
+let scene = (() => {
+  const p = activeProject();
+  if (!p.scene.sets) return emptyScene();
+  p.scene.sets.forEach(s => { s.designs = migrateDesigns(s.designs); });
+  return p.scene;
+})();
+let currentVariant = 0;
 
 function currentSetObj() {
   return scene.sets[scene.currentSet];
 }
 
-// Migrate: if a design value is a plain object (not array), wrap it
-function migrateDesigns(designs) {
-  if (!designs) return {};
-  for (const ch of Object.keys(designs)) {
-    if (designs[ch] && !Array.isArray(designs[ch])) {
-      designs[ch] = [designs[ch]];
-    }
-  }
-  return designs;
-}
-
-function loadScene() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(SCENE_KEY));
-    if (raw) {
-      // New multi-set format
-      if (raw.sets) {
-        raw.sets.forEach(s => { s.designs = migrateDesigns(s.designs); });
-        if (raw.currentSet == null) raw.currentSet = 0;
-        return raw;
-      }
-      // Migrate old single-set format
-      if (raw.chars) {
-        raw.designs = migrateDesigns(raw.designs);
-        return { sets: [{ name: "Set 1", chars: raw.chars, designs: raw.designs }], currentSet: 0 };
-      }
-    }
-  } catch {}
-  // Migrate old library format if present
-  try {
-    const old = JSON.parse(localStorage.getItem("charDesignLibrary"));
-    if (old && typeof old === "object") {
-      const chars = Object.keys(old).slice(0, MAX_SET_SIZE);
-      const designs = {};
-      for (const ch of chars) designs[ch] = [old[ch]];
-      return { sets: [{ name: "Set 1", chars, designs }], currentSet: 0 };
-    }
-  } catch {}
-  return emptyScene();
+function renumberSets() {
+  scene.sets.forEach((s, i) => { s.name = `Set ${i + 1}`; });
 }
 
 function saveScene() {
-  localStorage.setItem(SCENE_KEY, JSON.stringify(scene));
+  activeProject().scene = scene;
+  saveProjects();
+}
+
+// ---------------------------------------------------------------------------
+// Project management UI
+// ---------------------------------------------------------------------------
+function switchProject(id) {
+  saveCurrentDesign();
+  saveScene(); // flush current project
+  projects.active = id;
+  const p = activeProject();
+  p.scene.sets.forEach(s => { s.designs = migrateDesigns(s.designs); });
+  scene = p.scene;
+  currentVariant = 0;
+  selectedStrokes.clear();
+  medianCache[currentChar] = medianCache[currentChar]; // keep cache
+  buildProjectUI();
+  updateSetUI();
+  switchChar(currentChar);
+}
+
+function newProject() {
+  const name = prompt("Project name:", `Project ${Object.keys(projects.projects).length + 1}`);
+  if (!name) return;
+  const id = "p_" + Date.now();
+  projects.projects[id] = { name, scene: emptyScene() };
+  saveProjects();
+  switchProject(id);
+}
+
+function renameProject(id) {
+  const proj = projects.projects[id];
+  const name = prompt("Rename project:", proj.name);
+  if (!name || name === proj.name) return;
+  proj.name = name;
+  saveProjects();
+  buildProjectUI();
+}
+
+function deleteProject(id) {
+  const keys = Object.keys(projects.projects);
+  if (keys.length <= 1) { alert("Cannot delete the only project."); return; }
+  if (!confirm(`Delete "${projects.projects[id].name}"?`)) return;
+  delete projects.projects[id];
+  if (projects.active === id) {
+    projects.active = Object.keys(projects.projects)[0];
+    switchProject(projects.active);
+  } else {
+    saveProjects();
+    buildProjectUI();
+  }
+}
+
+function buildProjectUI() {
+  const sel = document.getElementById("project-select");
+  const del = document.getElementById("project-delete-btn");
+  if (!sel) return;
+  sel.innerHTML = "";
+  for (const [id, proj] of Object.entries(projects.projects)) {
+    const opt = document.createElement("option");
+    opt.value = id;
+    opt.textContent = proj.name;
+    if (id === projects.active) opt.selected = true;
+    sel.appendChild(opt);
+  }
+  if (del) del.disabled = Object.keys(projects.projects).length <= 1;
+
+  const proj = activeProject();
+  const nameInput = document.getElementById("project-name-input");
+  if (nameInput) nameInput.value = proj.name;
+  const wdLabel = document.getElementById("workdir-label");
+  if (wdLabel) wdLabel.textContent = workdirHandle ? workdirHandle.name : (proj.workdirName || "—");
 }
 
 function saveCurrentDesign() {
@@ -166,6 +265,8 @@ const DEFAULT_PARAMS = {
   dryness: 0.12,
   warp: 0,
   smoothness: 0.45,
+  strokeStart: 0,   // arc-length fraction where stroke begins (0 = full start)
+  strokeEnd: 1,     // arc-length fraction where stroke ends (1 = full end)
   widthCurve: null, // null = use pressure curve from style. Array of {x,y} = custom
   offsetCurve: null, // null = no offset. Array of {x,y} = perpendicular displacement
 };
@@ -208,7 +309,8 @@ function createDesign(ch) {
   return {
     character: ch,
     seed: noiseSeed,
-    charScale: 1.0, // per-character scale (0.85 - 1.15)
+    charScale: 1.0,
+    medianMod: { bow: 0, entryBend: 0, exitBend: 0 },
     global: { ...DEFAULT_PARAMS },
     overrides: {},
   };
@@ -255,7 +357,8 @@ scaleNum.addEventListener("change", () => {
 const SLIDER_IDS = [
   "radius", "taper",
   "brushAngle", "angleVar", "tremor", "jitter", "warp", "smoothness", "weightMul",
-  "inkLevel", "asymmetry", "curvatureWeight", "sampleStep", "normalBias", "dryness"
+  "inkLevel", "asymmetry", "curvatureWeight", "sampleStep", "normalBias", "dryness",
+  "strokeStart", "strokeEnd"
 ];
 const PARAM_IDS = ["style", ...SLIDER_IDS];
 
@@ -270,6 +373,65 @@ SLIDER_IDS.forEach(id => {
     num.step = el.step;
   }
 });
+// --- MedianMod sliders ---
+const MM_IDS = ["bow", "entryBend", "exitBend"];
+const mmEls = {};
+const mmNumEls = {};
+MM_IDS.forEach(id => {
+  const el = document.getElementById("mm-" + id);
+  if (el) mmEls[id] = el;
+  const num = document.getElementById("mm-" + id + "-num");
+  if (num) mmNumEls[id] = num;
+});
+
+function syncMedianModSliders() {
+  const ps = primaryStroke();
+  const mm = ps >= 0 ? resolveMedianMod(ps) || { bow: 0, entryBend: 0, exitBend: 0 }
+                     : design.medianMod || { bow: 0, entryBend: 0, exitBend: 0 };
+  MM_IDS.forEach(id => {
+    const v = mm[id] ?? 0;
+    if (mmEls[id]) mmEls[id].value = v;
+    if (mmNumEls[id]) mmNumEls[id].value = v;
+  });
+}
+
+function setMedianModValue(id, v) {
+  const ps = primaryStroke();
+  if (ps >= 0) {
+    // Per-stroke: write into each selected stroke's override
+    selectedStrokes.forEach(si => {
+      if (!design.overrides[si]) design.overrides[si] = {};
+      if (!design.overrides[si].medianMod) {
+        // Initialize from current resolved value so unchanged params stay
+        design.overrides[si].medianMod = { ...resolveMedianMod(si) } || { bow: 0, entryBend: 0, exitBend: 0 };
+      }
+      design.overrides[si].medianMod[id] = v;
+    });
+  } else {
+    if (!design.medianMod) design.medianMod = { bow: 0, entryBend: 0, exitBend: 0 };
+    design.medianMod[id] = v;
+  }
+  render();
+}
+
+MM_IDS.forEach(id => {
+  const el = mmEls[id];
+  const num = mmNumEls[id];
+  if (!el) return;
+  el.addEventListener("input", () => {
+    const v = Number(el.value);
+    if (num) num.value = v;
+    setMedianModValue(id, v);
+  });
+  if (num) {
+    num.addEventListener("change", () => {
+      const v = Number(num.value);
+      if (el) el.value = v;
+      setMedianModValue(id, v);
+    });
+  }
+});
+
 // Style is a radio group, handle separately
 const styleRadioContainer = document.getElementById("p-style");
 const getStyleValue = () => {
@@ -286,9 +448,23 @@ function resolveStrokeParams(strokeIndex) {
   const base = { ...design.global };
   const over = design.overrides[strokeIndex];
   if (over) {
-    Object.keys(over).forEach(k => { base[k] = over[k]; });
+    Object.keys(over).forEach(k => { if (k !== "medianMod") base[k] = over[k]; });
   }
   return base;
+}
+
+function resolveMedianMod(strokeIndex) {
+  const over = design.overrides[strokeIndex];
+  if (over && over.medianMod) return over.medianMod;
+  return design.medianMod || null;
+}
+
+function prepareMedian(median, mod, params) {
+  let m = mod ? modifyMedian(median, mod) : median;
+  const t0 = params.strokeStart ?? 0;
+  const t1 = params.strokeEnd   ?? 1;
+  if (t0 > 0 || t1 < 1) m = trimMedian(m, t0, t1);
+  return m;
 }
 
 // Build opts for the engine from per-stroke params
@@ -398,8 +574,9 @@ function render() {
   }
 
   medians.forEach((median, si) => {
-    const rawStroke = transformMedian(median, ox, oy, scale);
+    const mod = resolveMedianMod(si);
     const params = resolveStrokeParams(si);
+    const rawStroke = transformMedian(prepareMedian(median, mod, params), ox, oy, scale);
     const opts = paramsToOpts(params);
     const stroke = smoothMedian(rawStroke, params.smoothness);
     const trait = paramsToTrait(params, median);
@@ -418,7 +595,8 @@ function render() {
   // Highlight selected strokes
   selectedStrokes.forEach(si => {
     if (si < 0 || si >= medians.length) return;
-    const rawHighlight = transformMedian(medians[si], ox, oy, scale);
+    const hmod = resolveMedianMod(si);
+    const rawHighlight = transformMedian(hmod ? modifyMedian(medians[si], hmod) : medians[si], ox, oy, scale);
     const stroke = smoothMedian(rawHighlight, resolveStrokeParams(si).smoothness);
     ctx.lineWidth = 3;
     ctx.strokeStyle = "rgba(196, 98, 26, 0.8)";
@@ -506,6 +684,7 @@ function syncSlidersFrom(params) {
 }
 
 function updatePanel() {
+  syncMedianModSliders();
   const ps = primaryStroke();
   if (ps === -1) {
     canvasHintText = "Click a stroke to edit individually";
@@ -602,6 +781,7 @@ resetBtn.addEventListener("click", () => {
 document.getElementById("reset-all-btn").addEventListener("click", () => {
   design.global = { ...DEFAULT_PARAMS };
   design.overrides = {};
+  design.medianMod = { bow: 0, entryBend: 0, exitBend: 0 };
   selectedStrokes.clear();
   buildStrokeBar();
   updatePanel();
@@ -643,6 +823,7 @@ async function switchToChar(ch, existingDesign) {
       character: ch,
       seed: noiseSeed,
       charScale: existingDesign.charScale || 1.0,
+      medianMod: existingDesign.medianMod || { bow: 0, entryBend: 0, exitBend: 0 },
       global: { ...DEFAULT_PARAMS, ...existingDesign.global },
       overrides: existingDesign.overrides || {},
     };
@@ -698,6 +879,7 @@ function switchToVariant(idx) {
       character: currentChar,
       seed: noiseSeed,
       charScale: existing.charScale || 1.0,
+      medianMod: existing.medianMod || { bow: 0, entryBend: 0, exitBend: 0 },
       global: { ...DEFAULT_PARAMS, ...existing.global },
       overrides: existing.overrides || {},
     };
@@ -749,6 +931,67 @@ function getCleanDesignData() {
   };
 }
 
+// Session-only work-directory handle (can't be serialized)
+let workdirHandle = null;
+
+// Project UI events (wired here, elements added in index.html)
+document.getElementById("project-select").addEventListener("change", (e) => {
+  if (e.target.value !== projects.active) switchProject(e.target.value);
+});
+document.getElementById("project-new-btn").addEventListener("click", newProject);
+document.getElementById("project-delete-btn").addEventListener("click", () => deleteProject(projects.active));
+
+// Inline rename via name input
+const projectNameInput = document.getElementById("project-name-input");
+if (projectNameInput) {
+  projectNameInput.addEventListener("change", () => {
+    const name = projectNameInput.value.trim();
+    if (!name) return;
+    activeProject().name = name;
+    saveProjects();
+    buildProjectUI();
+  });
+}
+
+// Config popover toggle
+const configBtn = document.getElementById("config-btn");
+const configPopover = document.getElementById("config-popover");
+if (configBtn && configPopover) {
+  configBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    configPopover.classList.toggle("hidden");
+  });
+  document.addEventListener("click", (e) => {
+    if (!configPopover.classList.contains("hidden") &&
+        !configPopover.contains(e.target) &&
+        e.target !== configBtn) {
+      configPopover.classList.add("hidden");
+    }
+  });
+}
+
+// Work directory picker
+const workdirBtn = document.getElementById("workdir-btn");
+const workdirLabel = document.getElementById("workdir-label");
+if (workdirBtn) {
+  workdirBtn.addEventListener("click", async () => {
+    if (!window.showDirectoryPicker) {
+      alert("Directory picker not supported in this browser.");
+      return;
+    }
+    try {
+      workdirHandle = await showDirectoryPicker({ mode: "readwrite" });
+      activeProject().workdirName = workdirHandle.name;
+      saveProjects();
+      if (workdirLabel) workdirLabel.textContent = workdirHandle.name;
+    } catch (e) {
+      if (e.name !== "AbortError") console.error(e);
+    }
+  });
+}
+
+buildProjectUI();
+
 document.getElementById("save-btn").addEventListener("click", async () => {
   // Save current character first
   saveCurrentDesign();
@@ -766,12 +1009,27 @@ document.getElementById("save-btn").addEventListener("click", async () => {
 
   const json = JSON.stringify(bundle, null, 2);
   const blob = new Blob([json], { type: "application/json" });
+  const filename = (activeProject().name || "sinograph-lab").replace(/[^a-z0-9_\-\s]/gi, "_") + ".json";
+
+  // Save to work directory if one is set
+  if (workdirHandle) {
+    try {
+      const fileHandle = await workdirHandle.getFileHandle(filename, { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return;
+    } catch (e) {
+      if (e.name === "AbortError") return;
+      // fall through to picker if workdir write fails
+    }
+  }
 
   // Use File System Access API if available (lets user pick location/name)
   if (window.showSaveFilePicker) {
     try {
       const handle = await showSaveFilePicker({
-        suggestedName: "sinograph-lab.json",
+        suggestedName: filename,
         types: [{ description: "JSON", accept: { "application/json": [".json"] } }],
       });
       const writable = await handle.createWritable();
@@ -787,7 +1045,7 @@ document.getElementById("save-btn").addEventListener("click", async () => {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "sinograph-lab.json";
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
 });
@@ -889,8 +1147,9 @@ document.getElementById("export-svg-btn").addEventListener("click", () => {
 
   let paths = "";
   medians.forEach((median, si) => {
-    const rawStroke = transformMedian(median, PAD, PAD, scale);
+    const smod = resolveMedianMod(si);
     const params = resolveStrokeParams(si);
+    const rawStroke = transformMedian(prepareMedian(median, smod, params), PAD, PAD, scale);
     const opts = paramsToOpts(params);
     const stroke = smoothMedian(rawStroke, params.smoothness);
     const trait = paramsToTrait(params, median);
@@ -1131,6 +1390,7 @@ function drawCurveEditor(curvePoints) {
     curveCtx.textAlign = "center";
     curveCtx.fillText("click to customize", cw / 2, ch / 2);
   }
+
 }
 
 function curveScreenToData(clientX, clientY) {
@@ -1174,12 +1434,10 @@ function findNearestPoint(sx, sy, pts) {
 curveCanvas.addEventListener("mousedown", (e) => {
   let pts = getActiveCurve();
   if (!pts) {
-    // First click: activate curve seeded from current style's pressure curve
     pts = getPreviewCurve().map(p => ({ ...p }));
     setActiveCurve(pts);
     render();
   }
-
   const { sx, sy } = curveScreenToData(e.clientX, e.clientY);
   draggingPoint = findNearestPoint(sx, sy, pts);
 });
@@ -1188,10 +1446,8 @@ curveCanvas.addEventListener("mousemove", (e) => {
   if (draggingPoint < 0) return;
   const pts = getActiveCurve();
   if (!pts) return;
-
   const { y } = curveScreenToData(e.clientX, e.clientY);
-  // x position is fixed for the 5 control points
-  pts[draggingPoint].y = y;
+  pts[draggingPoint].y = y; // x stays fixed
   setActiveCurve(pts);
   drawCurveEditor(pts);
   render();
@@ -1208,9 +1464,7 @@ curveCanvas.addEventListener("dblclick", () => {
     selectedStrokes.forEach(si => {
       if (design.overrides[si]) {
         delete design.overrides[si].widthCurve;
-        if (Object.keys(design.overrides[si]).length === 0) {
-          delete design.overrides[si];
-        }
+        if (Object.keys(design.overrides[si]).length === 0) delete design.overrides[si];
       }
     });
     buildStrokeBar();
@@ -1522,10 +1776,11 @@ function renderThumbnail(tCanvas, designData, medians, seed) {
   const oCtx = off.getContext("2d");
 
   medians.forEach((median, si) => {
-    const rawStroke = transformMedian(median, tox, toy, scale);
-    const base = { ...DEFAULT_PARAMS, ...(designData.global || {}) };
     const over = (designData.overrides || {})[si];
+    const tmod = (over && over.medianMod) || designData.medianMod || null;
+    const base = { ...DEFAULT_PARAMS, ...(designData.global || {}) };
     const params = over ? { ...base, ...over } : base;
+    const rawStroke = transformMedian(prepareMedian(median, tmod, params), tox, toy, scale);
     const opts = paramsToOpts(params);
     opts.radius *= thumbScale; // scale radius to thumbnail size
     opts.jitter *= thumbScale;
@@ -1687,6 +1942,58 @@ function buildVariantBar() {
       toggle.appendChild(btn);
     }
 
+    // Generate button: fill empty slots with auto-generated designs
+    {
+      const genBtn = document.createElement("button");
+      genBtn.textContent = "Generate";
+      genBtn.title = "Auto-generate variants in empty slots";
+      genBtn.addEventListener("click", () => {
+        const set = currentSetObj();
+        if (!set.designs[currentChar]) set.designs[currentChar] = [];
+        const arr = set.designs[currentChar];
+        const baseSeed = Date.now();
+        let generated = 0;
+        for (let i = 0; i < visibleVariants; i++) {
+          if (arr[i] != null) continue; // skip occupied
+          arr[i] = generateRandom(baseSeed + i * 1337, getMedians());
+          arr[i].character = currentChar;
+          generated++;
+        }
+        if (generated > 0) {
+          saveScene();
+          buildVariantBar();
+          render();
+        }
+      });
+      toggle.appendChild(genBtn);
+    }
+
+    // Evolve button: breed from current variant into empty slots
+    if (variants && variants[currentVariant]) {
+      const evoBtn = document.createElement("button");
+      evoBtn.textContent = "Evolve";
+      evoBtn.title = "Breed variations from current variant";
+      evoBtn.addEventListener("click", () => {
+        const set = currentSetObj();
+        const arr = set.designs[currentChar];
+        if (!arr || !arr[currentVariant]) return;
+        const parent = arr[currentVariant];
+        const baseSeed = Date.now();
+        let bred = 0;
+        for (let i = 0; i < visibleVariants; i++) {
+          if (arr[i] != null) continue;
+          arr[i] = breed(parent, baseSeed + i * 1337, getMedians(), 0.12);
+          arr[i].character = currentChar;
+          bred++;
+        }
+        if (bred > 0) {
+          saveScene();
+          buildVariantBar();
+        }
+      });
+      toggle.appendChild(evoBtn);
+    }
+
     // Tidy button: always visible when variants exist, compacts empty slots
     if (variants && variants.length > 0) {
       const occupied = variants.filter(v => v != null).length;
@@ -1729,7 +2036,7 @@ function buildSetTabs() {
   if (!tabBar) {
     tabBar = document.createElement("div");
     tabBar.id = "set-tabs";
-    tabBar.style.cssText = "display:flex; gap:4px; margin-bottom:6px; flex-wrap:wrap; align-items:center;";
+    tabBar.className = "set-tabs";
     const section = document.querySelector(".set-section .set-header");
     section.parentNode.insertBefore(tabBar, section.nextSibling);
   }
@@ -1737,40 +2044,15 @@ function buildSetTabs() {
 
   scene.sets.forEach((s, i) => {
     const tab = document.createElement("button");
+    tab.className = "set-tab" + (i === scene.currentSet ? " set-tab-active" : "");
     tab.textContent = s.name;
-    tab.className = "set-tool-btn" + (i === scene.currentSet ? " set-tab-active" : "");
-    tab.style.cssText = i === scene.currentSet
-      ? "border-color:var(--accent); color:var(--accent); background:rgba(159,63,23,0.08);"
-      : "";
     tab.addEventListener("click", () => switchSet(i));
-
-    // Delete set on right-click (context menu) if more than one set
-    if (scene.sets.length > 1) {
-      tab.addEventListener("contextmenu", (e) => {
-        e.preventDefault();
-        if (confirm(`Delete set "${s.name}"?`)) {
-          deleteSet(i);
-        }
-      });
-      tab.title = `${s.name} (right-click to delete)`;
-    }
     tabBar.appendChild(tab);
   });
 
-  // "+ New" button
-  const addBtn = document.createElement("button");
-  addBtn.textContent = "+";
-  addBtn.className = "set-tool-btn";
-  addBtn.title = "New set";
-  addBtn.addEventListener("click", () => {
-    const name = prompt("Set name:", `Set ${scene.sets.length + 1}`);
-    if (!name) return;
-    scene.sets.push(emptySet(name));
-    scene.currentSet = scene.sets.length - 1;
-    saveScene();
-    updateSetUI();
-  });
-  tabBar.appendChild(addBtn);
+  // Update delete button state
+  const delBtn = document.getElementById("delete-set-btn");
+  if (delBtn) delBtn.disabled = scene.sets.length <= 1;
 }
 
 function switchSet(idx) {
@@ -1790,6 +2072,7 @@ function deleteSet(idx) {
   scene.sets.splice(idx, 1);
   if (scene.currentSet >= scene.sets.length) scene.currentSet = scene.sets.length - 1;
   if (scene.currentSet < 0) scene.currentSet = 0;
+  renumberSets();
   saveScene();
   const set = currentSetObj();
   updateSetUI();
@@ -1836,10 +2119,20 @@ document.getElementById("import-txt-btn").addEventListener("click", () => {
   document.getElementById("txt-file-input").click();
 });
 
-document.getElementById("clear-set-btn").addEventListener("click", () => {
-  scene.sets[scene.currentSet] = emptySet(currentSetObj().name);
+document.getElementById("add-set-btn").addEventListener("click", () => {
+  saveCurrentDesign();
+  scene.sets.push(emptySet());
+  scene.currentSet = scene.sets.length - 1;
+  renumberSets();
   saveScene();
   updateSetUI();
+});
+
+document.getElementById("delete-set-btn").addEventListener("click", () => {
+  if (scene.sets.length <= 1) return;
+  const name = currentSetObj().name;
+  if (!confirm(`Delete "${name}"?`)) return;
+  deleteSet(scene.currentSet);
 });
 
 document.getElementById("txt-file-input").addEventListener("change", (e) => {
@@ -1894,11 +2187,20 @@ function importFromCompose() {
     if (raw) {
       const chars = JSON.parse(raw);
       if (Array.isArray(chars) && chars.length > 0) {
-        // Create a new set for the imported characters
-        const newSet = emptySet("From Compose");
+        // Create a new set, copying designs from existing sets
+        const newSet = emptySet();
         chars.forEach(ch => { if (newSet.chars.length < MAX_SET_SIZE) newSet.chars.push(ch); });
+        // Copy designs from existing sets (last set with designs wins)
+        for (const ch of newSet.chars) {
+          for (const s of scene.sets) {
+            if (s.designs[ch] && s.designs[ch].some(v => v != null)) {
+              newSet.designs[ch] = JSON.parse(JSON.stringify(s.designs[ch]));
+            }
+          }
+        }
         scene.sets.push(newSet);
         scene.currentSet = scene.sets.length - 1;
+        renumberSets();
         saveScene();
       }
       localStorage.removeItem("composeToDesign");

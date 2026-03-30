@@ -10,21 +10,54 @@
   <main class="page">
     <header class="toolbar">
       <div class="toolbar-left">
+        <button id="config-btn" type="button" class="icon-btn" title="Project settings">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12.22 2h-.44a2 2 0 00-2 2v.18a2 2 0 01-1 1.73l-.43.25a2 2 0 01-2 0l-.15-.08a2 2 0 00-2.73.73l-.22.38a2 2 0 00.73 2.73l.15.1a2 2 0 011 1.72v.51a2 2 0 01-1 1.74l-.15.09a2 2 0 00-.73 2.73l.22.38a2 2 0 002.73.73l.15-.08a2 2 0 012 0l.43.25a2 2 0 011 1.73V20a2 2 0 002 2h.44a2 2 0 002-2v-.18a2 2 0 011-1.73l.43-.25a2 2 0 012 0l.15.08a2 2 0 002.73-.73l.22-.39a2 2 0 00-.73-2.73l-.15-.08a2 2 0 01-1-1.74v-.5a2 2 0 011-1.74l.15-.09a2 2 0 00.73-2.73l-.22-.38a2 2 0 00-2.73-.73l-.15.08a2 2 0 01-2 0l-.43-.25a2 2 0 01-1-1.73V4a2 2 0 00-2-2z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+        </button>
+        <button id="load-btn" type="button" class="icon-btn" title="Open file">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 14l1.5-2.9A2 2 0 019.24 10H20a2 2 0 011.94 2.5l-1.54 6a2 2 0 01-1.95 1.5H4a2 2 0 01-2-2V5a2 2 0 012-2h3.9a2 2 0 011.69.9l.81 1.2a2 2 0 001.67.9H18a2 2 0 012 2v2"/>
+          </svg>
+        </button>
+        <button id="save-btn" type="button" class="icon-btn" title="Save file">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15.2 3a2 2 0 011.4.6l3.8 3.8a2 2 0 01.6 1.4V19a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/>
+            <path d="M17 21v-7a1 1 0 00-1-1H8a1 1 0 00-1 1v7"/>
+            <path d="M7 3v4a1 1 0 001 1h7"/>
+          </svg>
+        </button>
+        <input id="file-input" type="file" accept=".json" title="Load file" />
+      </div>
+      <div class="toolbar-center">
         <span class="toolbar-brand">Sinograph Lab</span>
-        <label class="char-input-label">
-          Character
-          <input id="char-input" type="text" maxlength="1" value="永" />
-        </label>
       </div>
       <div class="toolbar-right">
-        <button id="load-btn" type="button">Load</button>
-        <button id="save-btn" type="button">Save</button>
         <button id="export-png-btn" type="button">PNG</button>
         <button id="export-svg-btn" type="button">SVG</button>
         <a href="./compose.html" class="toolbar-link">Compose &rarr;</a>
-        <input id="file-input" type="file" accept=".json" title="Load file" />
       </div>
     </header>
+
+    <!-- Config popover (hidden by default) -->
+    <div id="config-popover" class="config-popover hidden">
+      <div class="config-row">
+        <label class="config-label">Project</label>
+        <select id="project-select" class="project-select" title="Active project"></select>
+        <button id="project-new-btn" type="button" class="project-btn" title="New project">+</button>
+        <button id="project-delete-btn" type="button" class="project-btn project-btn-danger" title="Delete project">&minus;</button>
+      </div>
+      <div class="config-row">
+        <label class="config-label">Name</label>
+        <input id="project-name-input" type="text" class="config-text-input" title="Project name" />
+      </div>
+      <div class="config-row">
+        <label class="config-label">Work dir</label>
+        <button id="workdir-btn" type="button" class="project-btn">choose…</button>
+        <span id="workdir-label" class="config-dir-label">—</span>
+      </div>
+    </div>
 
     <div class="workspace">
       <div class="canvas-area">
@@ -43,8 +76,9 @@
         <div class="set-section">
           <div class="set-header">
             <h4>Set</h4>
-            <button id="import-txt-btn" type="button" class="set-tool-btn" title="Import characters from text file">+ txt</button>
-            <button id="clear-set-btn" type="button" class="set-tool-btn set-tool-danger" title="Clear all characters from set">clear</button>
+            <button id="add-set-btn" type="button" class="set-tool-btn" title="Add new set">+</button>
+            <button id="delete-set-btn" type="button" class="set-tool-btn set-tool-danger" title="Delete current set">&minus;</button>
+            <button id="import-txt-btn" type="button" class="set-tool-btn" title="Import characters from text file">import text</button>
             <input id="txt-file-input" type="file" accept=".txt" title="Import text file" />
           </div>
           <div class="char-set" id="char-set">
@@ -54,6 +88,10 @@
       </div>
 
       <aside class="panel">
+        <div class="panel-section panel-char-input">
+          <h4 class="section-label">Character</h4>
+          <input id="char-input" type="text" maxlength="1" value="永" title="Character" />
+        </div>
         <div class="panel-section">
           <div class="style-radios" id="p-style">
             <label class="style-radio"><input type="radio" name="style" value="calligraphic" checked /><span>Calligraphic</span></label>
@@ -68,7 +106,6 @@
           <label>Tremor <input id="p-tremor" type="range" min="0" max="30" step="0.2" value="0" /><input class="num-input" data-for="p-tremor" type="number" /></label>
           <label>Jitter <input id="p-jitter" type="range" min="0" max="60" step="0.2" value="3" /><input class="num-input" data-for="p-jitter" type="number" /></label>
           <label>Warp <input id="p-warp" type="range" min="0" max="3" step="0.05" value="0" /><input class="num-input" data-for="p-warp" type="number" /></label>
-          <label>Smoothness <input id="p-smoothness" type="range" min="0" max="1" step="0.02" value="0.45" /><input class="num-input" data-for="p-smoothness" type="number" /></label>
           <label>Weight <input id="p-weightMul" type="range" min="0.3" max="2.5" step="0.02" value="1" /><input class="num-input" data-for="p-weightMul" type="number" /></label>
           <label>Ink level <input id="p-inkLevel" type="range" min="0.1" max="1" step="0.02" value="0.9" /><input class="num-input" data-for="p-inkLevel" type="number" /></label>
           <label>Asymmetry <input id="p-asymmetry" type="range" min="-1" max="1" step="0.02" value="0" /><input class="num-input" data-for="p-asymmetry" type="number" /></label>
@@ -77,6 +114,19 @@
           <label>Normal bias <input id="p-normalBias" type="range" min="-50" max="50" step="0.2" value="0" /><input class="num-input" data-for="p-normalBias" type="number" /></label>
           <label>Dryness <input id="p-dryness" type="range" min="0" max="1" step="0.02" value="0.12" /><input class="num-input" data-for="p-dryness" type="number" /></label>
           <label>Scale <input id="char-scale" type="range" min="0.85" max="1.15" step="0.01" value="1" /><input class="num-input" id="char-scale-num" type="number" step="0.01" /></label>
+        </div>
+        <div class="panel-section">
+          <h4 class="section-label">Shape</h4>
+          <label>Bow <input id="mm-bow" type="range" min="-0.3" max="0.3" step="0.005" value="0" /><input class="num-input" id="mm-bow-num" type="number" step="0.005" /></label>
+          <label>Entry bend <input id="mm-entryBend" type="range" min="-30" max="30" step="0.5" value="0" /><input class="num-input" id="mm-entryBend-num" type="number" step="0.5" /></label>
+          <label>Exit bend <input id="mm-exitBend" type="range" min="-30" max="30" step="0.5" value="0" /><input class="num-input" id="mm-exitBend-num" type="number" step="0.5" /></label>
+          <label>Smoothness <input id="p-smoothness" type="range" min="0" max="1" step="0.02" value="0.45" /><input class="num-input" data-for="p-smoothness" type="number" /></label>
+          <div class="stroke-range-row">
+            <span class="stroke-range-label">Start</span>
+            <input id="p-strokeStart" type="range" min="0" max="0.95" step="0.01" value="0" title="Stroke start" />
+            <input id="p-strokeEnd" type="range" min="0.05" max="1" step="0.01" value="1" title="Stroke end" />
+            <span class="stroke-range-label">End</span>
+          </div>
         </div>
 
         <div class="panel-section">

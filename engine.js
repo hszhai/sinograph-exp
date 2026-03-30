@@ -18,6 +18,109 @@ function mulberry32(seed) {
 // --- Geometry ---
 function dist(a, b) { return Math.hypot(b.x - a.x, b.y - a.y); }
 
+// ---------------------------------------------------------------------------
+// Trim a median polyline to arc-length fraction range [t0, t1].
+// Returns a new median array (same [[x,y],...] format).
+// ---------------------------------------------------------------------------
+function trimMedian(median, t0, t1) {
+  if (t0 <= 0 && t1 >= 1) return median;
+  const n = median.length;
+  if (n < 2) return median;
+
+  const cumLen = [0];
+  for (let i = 1; i < n; i++) {
+    cumLen.push(cumLen[i-1] + Math.hypot(median[i][0] - median[i-1][0], median[i][1] - median[i-1][1]));
+  }
+  const total = cumLen[n-1];
+  if (total < 1) return median;
+
+  const sLen = t0 * total;
+  const eLen = t1 * total;
+
+  function interpAt(len) {
+    for (let i = 0; i < n - 1; i++) {
+      if (cumLen[i] <= len && cumLen[i+1] >= len) {
+        const seg = cumLen[i+1] - cumLen[i];
+        const t = seg > 0 ? (len - cumLen[i]) / seg : 0;
+        return [median[i][0] + (median[i+1][0] - median[i][0]) * t,
+                median[i][1] + (median[i+1][1] - median[i][1]) * t];
+      }
+    }
+    return [...median[n-1]];
+  }
+
+  const result = [interpAt(sLen)];
+  for (let i = 0; i < n; i++) {
+    if (cumLen[i] > sLen && cumLen[i] < eLen) result.push(median[i]);
+  }
+  result.push(interpAt(eLen));
+  return result.length >= 2 ? result : median;
+}
+
+// ---------------------------------------------------------------------------
+// Median modifier: skeletal-geometry adjustments in hanzi coordinate space
+// (0-900, y-up), applied before transformMedian. Works per-stroke.
+// mod = { bow: 0, entryBend: 0, exitBend: 0 }
+//   bow:        sinusoidal perpendicular displacement (fraction of stroke length)
+//               positive = bows "left" relative to stroke direction
+//   entryBend:  rotation of first 30% around stroke start (degrees)
+//   exitBend:   rotation of last 30% around stroke end (degrees)
+// ---------------------------------------------------------------------------
+function modifyMedian(median, mod) {
+  if (!mod || !median || median.length < 2) return median;
+  const { bow = 0, entryBend = 0, exitBend = 0 } = mod;
+  if (bow === 0 && entryBend === 0 && exitBend === 0) return median;
+
+  let pts = median.map(([x, y]) => ({ x, y }));
+  const n = pts.length;
+
+  // Cumulative arc lengths
+  const cumLen = [0];
+  for (let i = 1; i < n; i++) {
+    cumLen.push(cumLen[i-1] + Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y));
+  }
+  const totalLen = cumLen[n-1];
+  if (totalLen < 1) return median;
+  const t = cumLen.map(l => l / totalLen);
+
+  // Bow: sinusoidal perpendicular displacement, endpoints fixed
+  if (bow !== 0) {
+    for (let i = 1; i < n - 1; i++) {
+      const tx = pts[Math.min(i+1, n-1)].x - pts[Math.max(i-1, 0)].x;
+      const ty = pts[Math.min(i+1, n-1)].y - pts[Math.max(i-1, 0)].y;
+      const tl = Math.hypot(tx, ty);
+      if (tl < 1e-6) continue;
+      const disp = bow * totalLen * Math.sin(Math.PI * t[i]);
+      // Perpendicular: rotate tangent 90° CCW
+      pts[i] = { x: pts[i].x - ty / tl * disp, y: pts[i].y + tx / tl * disp };
+    }
+  }
+
+  // Entry bend: rotate first 30% around stroke start
+  if (entryBend !== 0) {
+    const { x: sx, y: sy } = pts[0];
+    for (let i = 1; i < n && t[i] <= 0.3; i++) {
+      const angle = (entryBend * Math.PI / 180) * (1 - t[i] / 0.3);
+      const dx = pts[i].x - sx, dy = pts[i].y - sy;
+      const ca = Math.cos(angle), sa = Math.sin(angle);
+      pts[i] = { x: sx + dx * ca - dy * sa, y: sy + dx * sa + dy * ca };
+    }
+  }
+
+  // Exit bend: rotate last 30% around stroke end
+  if (exitBend !== 0) {
+    const { x: ex, y: ey } = pts[n-1];
+    for (let i = n-2; i >= 0 && t[i] >= 0.7; i--) {
+      const angle = (exitBend * Math.PI / 180) * ((t[i] - 0.7) / 0.3);
+      const dx = pts[i].x - ex, dy = pts[i].y - ey;
+      const ca = Math.cos(angle), sa = Math.sin(angle);
+      pts[i] = { x: ex + dx * ca - dy * sa, y: ey + dx * sa + dy * ca };
+    }
+  }
+
+  return pts.map(p => [p.x, p.y]);
+}
+
 function transformMedian(median, ox, oy, scale) {
   return median.map(([mx, my]) => ({
     x: ox + mx * scale,
@@ -370,10 +473,9 @@ function pressureCurve(progress, trait, opts) {
     default: base = pressureCalligraphic(progress, trait, opts); break;
   }
 
-  // Custom width curve: interpolate from control points, blend with base
+  // Custom width curve: interpolate from control points (x already remapped to 0-1)
   const curve = trait.widthCurve;
   if (curve && curve.length >= 2) {
-    // Find segment
     let i = 0;
     while (i < curve.length - 1 && curve[i + 1].x < progress) i++;
     let cy;
@@ -384,8 +486,7 @@ function pressureCurve(progress, trait, opts) {
       const t = seg > 0 ? (progress - curve[i].x) / seg : 0;
       cy = curve[i].y + (curve[i + 1].y - curve[i].y) * t;
     }
-    // cy is 0-1 where 1 = full width. Blend: use curve as the primary shape.
-    return Math.max(0.1, cy * 1.5 * trait.weightMul);
+    return Math.max(0.05, cy * 1.5 * trait.weightMul);
   }
 
   return base;
@@ -546,8 +647,8 @@ function createStrokeEnvelope(stroke, opts, rand, strokeIndex, trait, dScale) {
     const trem = tremorOffset(progress, trait, rand, opts);
     const cx = sx + s.nx * (centerShift + asymOff) + trem.dx;
     const cy = sy + s.ny * (centerShift + asymOff) + trem.dy;
-    const lr = Math.max(1, flare + edgeNoise);
-    const rr = Math.max(1, flare - edgeNoise * 0.5);
+    const lr = pressure > 0 ? Math.max(1, flare + edgeNoise) : 0;
+    const rr = pressure > 0 ? Math.max(1, flare - edgeNoise * 0.5) : 0;
     left.push({ x: cx + s.nx * lr, y: cy + s.ny * lr });
     right.push({ x: cx - s.nx * rr, y: cy - s.ny * rr });
   });
@@ -601,7 +702,7 @@ function createStrokeEnvelope(stroke, opts, rand, strokeIndex, trait, dScale) {
 
 // --- Exports for module bundling ---
 export {
-  mulberry32, transformMedian, smoothMedian, densityScale,
+  mulberry32, modifyMedian, trimMedian, transformMedian, smoothMedian, densityScale,
   classifyStroke, parseStrokeType, pressureCurve,
   createStrokeEnvelope, smoothClosedPath,
 };

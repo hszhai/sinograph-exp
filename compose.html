@@ -70,7 +70,7 @@
       z-index: 1;
     }
 
-    .toolbar button, .toolbar label {
+    .toolbar button:not(.icon-btn), .toolbar label {
       border: 1px solid var(--line);
       border-radius: 999px;
       padding: 6px 12px;
@@ -80,7 +80,22 @@
       font-size: 12px;
       font-family: "Menlo", "SFMono-Regular", monospace;
     }
-    .toolbar button:hover { border-color: var(--accent); color: var(--accent); }
+    .toolbar button:not(.icon-btn):hover { border-color: var(--accent); color: var(--accent); }
+    .icon-btn {
+      width: 36px;
+      height: 36px;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: rgba(255, 250, 240, 0.84);
+      color: rgba(95, 83, 72, 0.5);
+      cursor: pointer;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .icon-btn:hover { border-color: var(--accent); color: var(--accent); }
 
     .workspace {
       display: grid;
@@ -196,6 +211,22 @@
     .section-link:hover { border-color: var(--accent); color: var(--accent); }
     .section-header-btns { display: flex; gap: 4px; }
 
+    .checkbox-label {
+      display: flex !important;
+      grid-template-columns: unset !important;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--ink-soft);
+      cursor: pointer;
+      margin-top: 4px;
+      margin-bottom: 0;
+    }
+    .checkbox-label input[type="checkbox"] {
+      accent-color: var(--accent);
+      margin: 0;
+    }
+
     .paper-row {
       display: flex;
       gap: 8px;
@@ -298,8 +329,12 @@
       color: var(--ink-soft);
       text-decoration: none;
       font-family: "Menlo", "SFMono-Regular", monospace;
+      padding: 6px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      transition: border-color 0.15s, color 0.15s;
     }
-    .back-link:hover { color: var(--accent); }
+    .back-link:hover { border-color: var(--accent); color: var(--accent); }
 
     .tuning-hidden { display: none; }
 
@@ -451,13 +486,23 @@
     <header class="toolbar">
       <div class="toolbar-left">
         <span class="toolbar-brand">Sinograph Lab</span>
-        <a href="./index.html" class="back-link">&larr; Design</a>
-        <button id="load-btn" type="button">Load</button>
-        <button id="save-btn" type="button">Save</button>
+        <button id="load-btn" type="button" class="icon-btn" title="Open file">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 14l1.5-2.9A2 2 0 019.24 10H20a2 2 0 011.94 2.5l-1.54 6a2 2 0 01-1.95 1.5H4a2 2 0 01-2-2V5a2 2 0 012-2h3.9a2 2 0 011.69.9l.81 1.2a2 2 0 001.67.9H18a2 2 0 012 2v2"/>
+          </svg>
+        </button>
+        <button id="save-btn" type="button" class="icon-btn" title="Save file">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15.2 3a2 2 0 011.4.6l3.8 3.8a2 2 0 01.6 1.4V19a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/>
+            <path d="M17 21v-7a1 1 0 00-1-1H8a1 1 0 00-1 1v7"/>
+            <path d="M7 3v4a1 1 0 001 1h7"/>
+          </svg>
+        </button>
       </div>
       <div class="toolbar-right">
         <button id="export-png-btn" type="button">PNG</button>
         <button id="export-svg-btn" type="button">SVG</button>
+        <a href="./index.html" class="back-link">&larr; Design</a>
       </div>
       <input id="file-input" type="file" accept=".json" />
     </header>
@@ -478,9 +523,9 @@
           <div class="compact-heading">
             <h3>Layout</h3>
             <div class="direction-radios">
-            <label class="dir-radio"><input type="radio" name="dir" value="vertical" aria-label="Vertical" checked /><svg width="16" height="16" viewBox="0 0 16 16"><path d="M11 2v12M11 14l-2-2M11 14l2-2M5 2v12M5 14l-2-2M5 14l2-2" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round"/><path d="M13 1h1v1M13 15h1v-1M2 1h1v1M2 15h1v-1" stroke="currentColor" stroke-width="1" fill="none" opacity="0.4"/></svg></label>
-            <label class="dir-radio"><input type="radio" name="dir" value="horizontal" aria-label="Horizontal" /><svg width="16" height="16" viewBox="0 0 16 16"><path d="M2 5h12M14 5l-2-2M14 5l-2 2M2 11h12M14 11l-2-2M14 11l-2 2" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round"/><path d="M1 2v1h1M15 2v1h-1M1 13v1h1M15 13v1h-1" stroke="currentColor" stroke-width="1" fill="none" opacity="0.4"/></svg></label>
+            <label class="dir-radio"><input type="radio" name="dir" value="horizontal" aria-label="Horizontal" checked /><svg width="16" height="16" viewBox="0 0 16 16"><path d="M2 5h12M14 5l-2-2M14 5l-2 2M2 11h12M14 11l-2-2M14 11l-2 2" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round"/><path d="M1 2v1h1M15 2v1h-1M1 13v1h1M15 13v1h-1" stroke="currentColor" stroke-width="1" fill="none" opacity="0.4"/></svg></label>
             <label class="dir-radio"><input type="radio" name="dir" value="smart-h" aria-label="Smart horizontal" /><svg width="16" height="16" viewBox="0 0 16 16"><path d="M2 5h12M14 5l-2-2M14 5l-2 2M2 11h12M14 11l-2-2M14 11l-2 2" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" opacity="0.35"/><rect x="2" y="3" width="5" height="4" rx="0.5" fill="currentColor" opacity="0.5"/><rect x="8" y="3.5" width="3.5" height="3" rx="0.5" fill="currentColor" opacity="0.5"/><rect x="2" y="9" width="4" height="4.5" rx="0.5" fill="currentColor" opacity="0.5"/><rect x="7" y="9.5" width="5.5" height="4" rx="0.5" fill="currentColor" opacity="0.5"/></svg></label>
+            <label class="dir-radio"><input type="radio" name="dir" value="vertical" aria-label="Vertical" /><svg width="16" height="16" viewBox="0 0 16 16"><path d="M11 2v12M11 14l-2-2M11 14l2-2M5 2v12M5 14l-2-2M5 14l2-2" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round"/><path d="M13 1h1v1M13 15h1v-1M2 1h1v1M2 15h1v-1" stroke="currentColor" stroke-width="1" fill="none" opacity="0.4"/></svg></label>
             <label class="dir-radio"><input type="radio" name="dir" value="smart" aria-label="Smart vertical" /><svg width="16" height="16" viewBox="0 0 16 16"><path d="M11 2v12M11 14l-2-2M11 14l2-2M5 2v12M5 14l-2-2M5 14l2-2" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" opacity="0.35"/><rect x="3" y="2" width="4" height="5" rx="0.5" fill="currentColor" opacity="0.5"/><rect x="3.5" y="8" width="3" height="3.5" rx="0.5" fill="currentColor" opacity="0.5"/><rect x="9" y="2" width="4.5" height="4" rx="0.5" fill="currentColor" opacity="0.5"/><rect x="9.5" y="7" width="4" height="5.5" rx="0.5" fill="currentColor" opacity="0.5"/></svg></label>
           </div>
           </div>
@@ -507,6 +552,7 @@
 在河之洲
 窈窕淑女
 君子好逑</textarea>
+          <label class="checkbox-label"><input type="checkbox" id="classical-mode" /> Classical (no punctuation)</label>
           <div class="scene-info" id="scene-info">No project loaded</div>
         </div>
 

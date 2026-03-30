@@ -3,7 +3,7 @@
 // Renders text using character designs from a scene file.
 // ---------------------------------------------------------------------------
 import {
-  mulberry32, transformMedian, smoothMedian, densityScale,
+  mulberry32, modifyMedian, trimMedian, transformMedian, smoothMedian, densityScale,
   classifyStroke, parseStrokeType,
   createStrokeEnvelope, smoothClosedPath,
 } from "./engine.js";
@@ -185,7 +185,9 @@ function drawBboxOverlay(highlightIdx) {
 
   // Recompute layout with current tuning
   const charSizes = computeCharSizes(allChars, settings.cellSize, settings.sizeVar, settings.complexShrink);
-  const layout = computeSmartLayout(allChars, settings, renderedChars, charSizes);
+  const layout = settings.direction === "smart-h"
+    ? computeSmartHLayout(allChars, settings, renderedChars, charSizes)
+    : computeSmartLayout(allChars, settings, renderedChars, charSizes);
 
   // Redraw snapshot
   const draw = () => {
@@ -194,10 +196,11 @@ function drawBboxOverlay(highlightIdx) {
 
     // Draw bounding boxes for all characters of the same type
     const selCh = highlightIdx >= 0 ? allChars[highlightIdx] : null;
-    layout.positions.forEach((pos, i) => {
-      const sz = charSizes[i] || settings.cellSize;
-      const isSelected = (i === highlightIdx);
-      const isSameChar = (pos.ch === selCh && i !== highlightIdx);
+    layout.positions.forEach((pos) => {
+      const fi = pos.flatIdx ?? -1;
+      const sz = charSizes[fi] ?? settings.cellSize;
+      const isSelected = (fi === highlightIdx);
+      const isSameChar = (pos.ch === selCh && fi !== highlightIdx);
 
       if (isSelected) {
         composeCtx.strokeStyle = "rgba(159, 63, 23, 0.7)";
@@ -235,6 +238,7 @@ function buildTuningUI(chars) {
 
   container.innerHTML = "";
   chars.forEach((ch, idx) => {
+    if (ch === "\n" || ch === "\r" || ch === " ") return; // skip sentinels
     const btn = document.createElement("button");
     btn.className = "tuning-char" + (charTuning[tuningKey(idx)] ? " has-tuning" : "");
     btn.dataset.idx = idx;
@@ -487,6 +491,7 @@ function saveComposeState() {
     flowH: document.getElementById("s-flowH").value,
     sizeVar: document.getElementById("s-sizeVar").value,
     complexShrink: document.getElementById("s-complexShrink").value,
+    classical: document.getElementById("classical-mode").checked,
     tuningIdx: tuningSelectedIdx,
   };
   localStorage.setItem(COMPOSE_STATE_KEY, JSON.stringify(state));
@@ -515,6 +520,8 @@ function restoreComposeState() {
     // Restore plain number inputs (paper)
     if (state.flowW != null) document.getElementById("s-flowW").value = state.flowW;
     if (state.flowH != null) document.getElementById("s-flowH").value = state.flowH;
+    // Restore classical mode checkbox
+    if (state.classical != null) document.getElementById("classical-mode").checked = state.classical;
     // Restore tuning selection
     if (state.tuningIdx != null) tuningSelectedIdx = state.tuningIdx;
   } catch {}
@@ -562,8 +569,22 @@ function paramsToTrait(params, median) {
 function resolveParams(designData, strokeIndex) {
   const base = { ...DEFAULT_PARAMS, ...(designData.global || {}) };
   const over = (designData.overrides || {})[strokeIndex];
-  if (over) Object.keys(over).forEach(k => { base[k] = over[k]; });
+  if (over) Object.keys(over).forEach(k => { if (k !== "medianMod") base[k] = over[k]; });
   return base;
+}
+
+function resolveMedianMod(designData, strokeIndex) {
+  const over = (designData.overrides || {})[strokeIndex];
+  if (over && over.medianMod) return over.medianMod;
+  return designData.medianMod || null;
+}
+
+function prepareMedian(median, mod, params) {
+  let m = mod ? modifyMedian(median, mod) : median;
+  const t0 = params.strokeStart ?? 0;
+  const t1 = params.strokeEnd   ?? 1;
+  if (t0 > 0 || t1 < 1) m = trimMedian(m, t0, t1);
+  return m;
 }
 
 // Render a single character into an offscreen canvas
@@ -590,8 +611,9 @@ function renderCharacter(medians, designData, cellSize, strokeScale) {
   const oCtx = off.getContext("2d");
 
   medians.forEach((median, si) => {
-    const rawStroke = transformMedian(median, ox, oy, scale);
+    const cmod = designData ? resolveMedianMod(designData, si) : null;
     const params = designData ? resolveParams(designData, si) : { ...DEFAULT_PARAMS };
+    const rawStroke = transformMedian(prepareMedian(median, cmod, params), ox, oy, scale);
     const opts = paramsToOpts(params);
     const ss = strokeScale || 1;
     opts.radius *= scaleRatio * ss;
@@ -663,29 +685,93 @@ function isCJK(ch) {
   return (code >= 0x4e00 && code <= 0x9fff) || (code >= 0x3400 && code <= 0x4dbf);
 }
 
+function isRenderable(ch) {
+  const code = ch.codePointAt(0);
+  if (code >= 0x4e00 && code <= 0x9fff) return true;  // CJK unified
+  if (code >= 0x3400 && code <= 0x4dbf) return true;  // CJK ext A
+  if (code >= 0x3000 && code <= 0x303f) return true;  // CJK punctuation
+  if (code >= 0xff00 && code <= 0xffef) return true;  // fullwidth forms
+  if (code >= 0x2000 && code <= 0x206f) return true;  // general punctuation
+  if (/[a-zA-Z0-9.,!?;:'"()\-]/.test(ch)) return true;
+  return false;
+}
+
 function parsePoem(text) {
-  // Match CJK characters, CJK punctuation, fullwidth punctuation, and common punctuation
-  const charRegex = /[\u4e00-\u9fff\u3400-\u4dbf\u3000-\u303f\uff00-\uffef\u2000-\u206fa-zA-Z0-9.,!?;:'"()\-]/g;
+  const classical = document.getElementById("classical-mode")?.checked;
   const rawLines = text.split(/\n/);
   const lines = [];
+  let lastWasEmpty = false;
   for (const line of rawLines) {
-    const chars = line.match(charRegex);
-    if (chars && chars.length > 0) lines.push(chars);
+    const trimmed = line.trim();
+    if (trimmed === "") {
+      if (lines.length > 0 && !lastWasEmpty) lines.push(null);
+      lastWasEmpty = true;
+      continue;
+    }
+    lastWasEmpty = false;
+    // Walk character by character, preserving spaces as " " sentinels
+    const chars = [];
+    let inSpace = false;
+    for (const ch of trimmed) {
+      if (ch === " " || ch === "\u3000") {  // ASCII space or ideographic space
+        if (!inSpace && chars.length > 0) chars.push(" ");
+        inSpace = true;
+        continue;
+      }
+      inSpace = false;
+      if (!isRenderable(ch)) continue;
+      if (classical && isPunctuation(ch)) continue;
+      chars.push(ch);
+    }
+    // Remove trailing space sentinel
+    while (chars.length && chars[chars.length - 1] === " ") chars.pop();
+    if (chars.length > 0) lines.push(chars);
   }
+  while (lines.length && lines[lines.length - 1] === null) lines.pop();
   return lines;
 }
 
+// Check if a character is CJK or fullwidth punctuation
+function isPunctuation(ch) {
+  const code = ch.codePointAt(0);
+  // CJK punctuation U+3000-303F, fullwidth forms U+FF00-FF0F U+FF1A-FF20 U+FF3B-FF40 U+FF5B-FF65
+  if (code >= 0x3000 && code <= 0x303f) return true;
+  if (code >= 0xff01 && code <= 0xff0f) return true;
+  if (code >= 0xff1a && code <= 0xff20) return true;
+  if (code >= 0xff3b && code <= 0xff65) return true;
+  // Common ASCII punctuation
+  return ".,;:!?'\"()-".includes(ch);
+}
+
 // Render a non-CJK character (punctuation, Latin, numbers) as text on a canvas
-function renderTextChar(ch, cellSize) {
+// direction: "smart-h" or "horizontal" = punctuation at left; "smart" or "vertical" = punctuation at top-right
+function renderTextChar(ch, cellSize, direction) {
   const canvas = document.createElement("canvas");
   canvas.width = cellSize;
   canvas.height = cellSize;
   const ctx = canvas.getContext("2d");
   ctx.fillStyle = "rgba(28, 23, 19, 0.85)";
-  ctx.font = `${Math.round(cellSize * 0.65)}px "Iowan Old Style", "Palatino Linotype", "SimSun", "Songti SC", serif`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(ch, cellSize / 2, cellSize / 2);
+  const fontSize = Math.round(cellSize * 0.65);
+  ctx.font = `${fontSize}px "Iowan Old Style", "Palatino Linotype", "SimSun", "Songti SC", serif`;
+
+  if (isPunctuation(ch)) {
+    const isVert = direction === "smart" || direction === "vertical";
+    if (isVert) {
+      // Top-right for vertical text
+      ctx.textAlign = "right";
+      ctx.textBaseline = "top";
+      ctx.fillText(ch, cellSize * 0.85, cellSize * 0.05);
+    } else {
+      // Bottom-left for horizontal text
+      ctx.textAlign = "left";
+      ctx.textBaseline = "bottom";
+      ctx.fillText(ch, cellSize * 0.05, cellSize * 0.85);
+    }
+  } else {
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(ch, cellSize / 2, cellSize / 2);
+  }
   return canvas;
 }
 
@@ -707,30 +793,48 @@ function getSettings() {
 function computeLayout(lines, settings) {
   const { cellSize, spacing, lineGap, padding, direction } = settings;
   const step = cellSize + spacing;
+  const paraExtra = Math.round(cellSize * 0.3 + lineGap);
+
+  // Filter out null paragraph markers but track cumulative extra gap per line
+  const realLines = [];
+  const paraGaps = [];
+  let extraGap = 0;
+  for (const line of lines) {
+    if (line === null) { extraGap += paraExtra; continue; }
+    realLines.push(line);
+    paraGaps.push(extraGap);
+    extraGap = 0;
+  }
 
   if (direction === "vertical") {
-    const maxCharsInLine = Math.max(...lines.map(l => l.length));
-    const totalW = padding * 2 + lines.length * step - spacing + (lines.length - 1) * lineGap;
+    const maxCharsInLine = Math.max(...realLines.map(l => l.length));
+    const totalGap = paraGaps.reduce((a, b) => a + b, 0);
+    const totalW = padding * 2 + realLines.length * step - spacing + (realLines.length - 1) * lineGap + totalGap;
     const totalH = padding * 2 + maxCharsInLine * step - spacing;
 
     const positions = [];
-    lines.forEach((line, li) => {
-      const colX = totalW - padding - (li + 1) * step - li * lineGap + spacing;
+    let cumGap = 0;
+    realLines.forEach((line, li) => {
+      cumGap += paraGaps[li];
+      const colX = totalW - padding - (li + 1) * step - li * lineGap - cumGap + spacing;
       line.forEach((ch, ci) => {
-        positions.push({ ch, x: colX, y: padding + ci * step });
+        if (ch !== " ") positions.push({ ch, x: colX, y: padding + ci * step });
       });
     });
     return { width: totalW, height: totalH, positions };
   } else {
-    const maxCharsInLine = Math.max(...lines.map(l => l.length));
+    const maxCharsInLine = Math.max(...realLines.map(l => l.length));
+    const totalGap = paraGaps.reduce((a, b) => a + b, 0);
     const totalW = padding * 2 + maxCharsInLine * step - spacing;
-    const totalH = padding * 2 + lines.length * step - spacing + (lines.length - 1) * lineGap;
+    const totalH = padding * 2 + realLines.length * step - spacing + (realLines.length - 1) * lineGap + totalGap;
 
     const positions = [];
-    lines.forEach((line, li) => {
-      const rowY = padding + li * (step + lineGap);
+    let cumGap = 0;
+    realLines.forEach((line, li) => {
+      cumGap += paraGaps[li];
+      const rowY = padding + li * (step + lineGap) + cumGap;
       line.forEach((ch, ci) => {
-        positions.push({ ch, x: padding + ci * step, y: rowY });
+        if (ch !== " ") positions.push({ ch, x: padding + ci * step, y: rowY });
       });
     });
     return { width: totalW, height: totalH, positions };
@@ -799,13 +903,30 @@ function computeSmartLayout(allChars, settings, renderedChars, charSizes) {
     const t = getTuningByIdx(flatIdx);
     const yOffset = cursorY - bounds.top + t.offsetY;
     // x starts at 0; flushColumn will center, then we add offsetX
-    const pos = { ch, x: 0, y: yOffset, _offX: t.offsetX };
+    const pos = { ch, x: 0, y: yOffset, _offX: t.offsetX, flatIdx };
     positions.push(pos);
     colChars.push({ pos, bounds });
     cursorY += (bounds.bottom - bounds.top) + inkGap + t.spacing;
   }
 
+  const paraGap = Math.round(cellSize * 0.3 + lineGap);
+  const spaceGap = Math.round(cellSize * 0.4);
+
   for (let i = 0; i < allChars.length; i++) {
+    if (allChars[i] === "\n") {
+      if (colChars.length > 0) flushColumn();
+      colRightEdge -= paraGap;
+      continue;
+    }
+    if (allChars[i] === "\r") {
+      if (colChars.length > 0) flushColumn();
+      continue;
+    }
+    if (allChars[i] === " ") {
+      cursorY += spaceGap;
+      continue;
+    }
+
     const rendered = renderedChars[i];
     if (!rendered) continue;
 
@@ -834,6 +955,7 @@ function computeSmartHLayout(allChars, settings, renderedChars, charSizes) {
   const { cellSize, spacing, lineGap, padding, flowW, flowH } = settings;
   const inkGap = Math.max(0, Math.round(cellSize * 0.04 + spacing * 0.5));
   const rowInkGap = Math.max(0, Math.round(cellSize * 0.02 + lineGap * 0.3));
+  const paraGap = Math.round(cellSize * 0.3 + lineGap);
 
   const positions = [];
   let rowTopEdge = padding;
@@ -857,7 +979,23 @@ function computeSmartHLayout(allChars, settings, renderedChars, charSizes) {
     cursorX = padding;
   }
 
+  const spaceGap = Math.round(cellSize * 0.4);
+
   for (let i = 0; i < allChars.length; i++) {
+    if (allChars[i] === "\n") {
+      if (rowChars.length > 0) flushRow();
+      rowTopEdge += paraGap;
+      continue;
+    }
+    if (allChars[i] === "\r") {
+      if (rowChars.length > 0) flushRow();
+      continue;
+    }
+    if (allChars[i] === " ") {
+      cursorX += spaceGap;
+      continue;
+    }
+
     const rendered = renderedChars[i];
     if (!rendered) continue;
 
@@ -871,7 +1009,7 @@ function computeSmartHLayout(allChars, settings, renderedChars, charSizes) {
     }
 
     const xOffset = cursorX - bounds.left + t.offsetX;
-    const pos = { ch, x: xOffset, y: 0, _offY: t.offsetY };
+    const pos = { ch, x: xOffset, y: 0, _offY: t.offsetY, flatIdx: i };
     positions.push(pos);
     rowChars.push({ pos, bounds });
     cursorX += inkW + inkGap + t.spacing;
@@ -1072,7 +1210,19 @@ async function doRender() {
   if (!lines.length) { setStatus("No characters found in text"); return; }
 
   const settings = getSettings();
-  const allChars = lines.flat();
+  // Flatten lines with break sentinels:
+  //   "\r" = line break (new row/column, normal gap)
+  //   "\n" = paragraph break (new row/column, larger gap)
+  const allChars = [];
+  for (let li = 0; li < lines.length; li++) {
+    const line = lines[li];
+    if (line === null) { allChars.push("\n"); continue; }
+    // Insert line break between consecutive text lines
+    if (allChars.length > 0 && allChars[allChars.length - 1] !== "\n" && allChars[allChars.length - 1] !== "\r") {
+      allChars.push("\r");
+    }
+    for (const ch of line) allChars.push(ch);
+  }
 
   // Reset variant counters for fresh round-robin
   variantCounters = {};
@@ -1093,6 +1243,7 @@ async function doRender() {
     // Pre-render at each character's own size, measure ink bounds
     variantCounters = {};
     const renderedChars = allChars.map((ch, i) => {
+      if (ch === "\n" || ch === "\r" || ch === " ") return null; // sentinel
       const sz = charSizes[i];
       const t = getTuningByIdx(i);
       let canvas;
@@ -1103,7 +1254,7 @@ async function doRender() {
         const ss = settings.strokeScale * t.strokeScale;
         canvas = renderCharacter(medians, designData, sz, ss);
       } else {
-        canvas = renderTextChar(ch, sz);
+        canvas = renderTextChar(ch, sz, settings.direction);
       }
       const bounds = measureInkBounds(canvas);
       return { canvas, bounds, size: sz };
@@ -1133,7 +1284,7 @@ async function doRender() {
         const ss = settings.strokeScale * t.strokeScale;
         charCanvas = renderCharacter(medians, designData, sz, ss);
       } else {
-        charCanvas = renderTextChar(pos.ch, sz);
+        charCanvas = renderTextChar(pos.ch, sz, settings.direction);
       }
       composeCtx.drawImage(charCanvas, pos.x, pos.y);
       rendered++;
@@ -1171,7 +1322,7 @@ async function doRender() {
       const ssChar = settings.strokeScale * tPi.strokeScale;
       charCanvas = renderCharacter(medians, designData, settings.cellSize, ssChar);
     } else {
-      charCanvas = renderTextChar(pos.ch, settings.cellSize);
+      charCanvas = renderTextChar(pos.ch, settings.cellSize, settings.direction);
     }
     composeCtx.drawImage(charCanvas, pos.x, pos.y);
     rendered++;
@@ -1222,7 +1373,15 @@ document.getElementById("export-svg-btn").addEventListener("click", async () => 
   if (!lines.length) return;
 
   const settings = getSettings();
-  const allChars = lines.flat();
+  const allChars = [];
+  for (let li = 0; li < lines.length; li++) {
+    const line = lines[li];
+    if (line === null) { allChars.push("\n"); continue; }
+    if (allChars.length > 0 && allChars[allChars.length - 1] !== "\n" && allChars[allChars.length - 1] !== "\r") {
+      allChars.push("\r");
+    }
+    for (const ch of line) allChars.push(ch);
+  }
   let layout;
 
   // For smart layout, need to do the full measure pass
@@ -1232,6 +1391,7 @@ document.getElementById("export-svg-btn").addEventListener("click", async () => 
     charSizes = computeCharSizes(allChars, settings.cellSize, settings.sizeVar, settings.complexShrink);
     variantCounters = {};
     const renderedChars = allChars.map((ch, i) => {
+      if (ch === "\n" || ch === "\r" || ch === " ") return null;
       const sz = charSizes[i];
       const t = getTuningByIdx(i);
       let canvas;
@@ -1242,7 +1402,7 @@ document.getElementById("export-svg-btn").addEventListener("click", async () => 
         const ss = settings.strokeScale * t.strokeScale;
         canvas = renderCharacter(medians, designData, sz, ss);
       } else {
-        canvas = renderTextChar(ch, sz);
+        canvas = renderTextChar(ch, sz, settings.direction);
       }
       const bounds = measureInkBounds(canvas);
       return { canvas, bounds, size: sz };
@@ -1266,7 +1426,16 @@ document.getElementById("export-svg-btn").addEventListener("click", async () => 
       const cellSize = (charSizes && charSizes[posIdx]) ? charSizes[posIdx] : settings.cellSize;
       const fontSize = Math.round(cellSize * 0.65);
       const escaped = pos.ch.replace(/&/g, "&amp;").replace(/</g, "&lt;");
-      paths += `<text x="${(pos.x + cellSize / 2).toFixed(1)}" y="${(pos.y + cellSize / 2).toFixed(1)}" font-size="${fontSize}" font-family="Iowan Old Style, Palatino Linotype, SimSun, Songti SC, serif" fill="rgba(28,23,19,0.85)" text-anchor="middle" dominant-baseline="central">${escaped}</text>\n`;
+      if (isPunctuation(pos.ch)) {
+        const isVert = settings.direction === "smart" || settings.direction === "vertical";
+        if (isVert) {
+          paths += `<text x="${(pos.x + cellSize * 0.85).toFixed(1)}" y="${(pos.y + cellSize * 0.05).toFixed(1)}" font-size="${fontSize}" font-family="Iowan Old Style, Palatino Linotype, SimSun, Songti SC, serif" fill="rgba(28,23,19,0.85)" text-anchor="end" dominant-baseline="hanging">${escaped}</text>\n`;
+        } else {
+          paths += `<text x="${(pos.x + cellSize * 0.05).toFixed(1)}" y="${(pos.y + cellSize * 0.85).toFixed(1)}" font-size="${fontSize}" font-family="Iowan Old Style, Palatino Linotype, SimSun, Songti SC, serif" fill="rgba(28,23,19,0.85)" text-anchor="start" dominant-baseline="auto">${escaped}</text>\n`;
+        }
+      } else {
+        paths += `<text x="${(pos.x + cellSize / 2).toFixed(1)}" y="${(pos.y + cellSize / 2).toFixed(1)}" font-size="${fontSize}" font-family="Iowan Old Style, Palatino Linotype, SimSun, Songti SC, serif" fill="rgba(28,23,19,0.85)" text-anchor="middle" dominant-baseline="central">${escaped}</text>\n`;
+      }
       posIdx++;
       continue;
     }
@@ -1290,8 +1459,9 @@ document.getElementById("export-svg-btn").addEventListener("click", async () => 
     const ss = (settings.strokeScale || 1) * getTuningByIdx(posIdx - 1).strokeScale;
 
     medians.forEach((median, si) => {
-      const rawStroke = transformMedian(median, ox, oy, scale);
+      const svgmod = designData ? resolveMedianMod(designData, si) : null;
       const params = designData ? resolveParams(designData, si) : { ...DEFAULT_PARAMS };
+      const rawStroke = transformMedian(prepareMedian(median, svgmod, params), ox, oy, scale);
       const opts = paramsToOpts(params);
       opts.radius *= scaleRatio * ss;
       opts.jitter *= scaleRatio * ss;
